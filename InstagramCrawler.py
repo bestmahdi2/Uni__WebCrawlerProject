@@ -1,7 +1,6 @@
 import pickle
 from os import listdir, getcwd, sep
 from time import sleep
-
 from selenium import webdriver, common
 from selenium.webdriver.common.keys import Keys
 import pandas as pd
@@ -12,12 +11,14 @@ import threading
 
 class InstagramCrawler:
     def __init__(self) -> None:
-        self.accounts_name = []
         self.accounts_url = []
+        self.accounts_name = []
         self.posts_data = {}
         self.comments_data = []
+        self.driver = None
 
-    def set_driver(self) -> webdriver.Chrome:
+    @staticmethod
+    def set_driver() -> webdriver.Chrome:
         options = webdriver.ChromeOptions()
         options.add_argument("start-maximized")
         options.add_argument("--disable-blink-features=AutomationControlled")
@@ -53,7 +54,8 @@ class InstagramCrawler:
         # noti = self.driver.find_element_by_xpath('/html/body/div[5]/div/div/div/div[3]/button[2]').click()
         # sleep(3)
 
-    def signed_in_driver(self) -> webdriver.Chrome:
+    @staticmethod
+    def signed_in_driver() -> webdriver.Chrome:
         options = webdriver.ChromeOptions()
         # options.add_argument('--headless')
         options.add_argument("start-maximized")
@@ -63,7 +65,9 @@ class InstagramCrawler:
 
         return driver
 
-    def find_posts_in_page(self, number: int) -> list:
+    def find_counted_posts_in_page(self, url: str, number: int) -> list:
+        self.driver.get(url)
+
         posts = []
 
         error, last_scroll = 0, 0
@@ -81,41 +85,35 @@ class InstagramCrawler:
             except common.exceptions.StaleElementReferenceException:
                 pass
 
-        # remove duplicated and keeping order
-        seen = set()
-        seen_add = seen.add
-        posts = [x for x in posts if not (x in seen or seen_add(x))]
+        posts = InstagramCrawler.duplicated_remover(posts)
 
         if len(posts) > number:
             return posts[:number]
         return posts
 
-    def find_accounts_name_contain_hashtag(self, hashtag: str, n: int):
-        self.driver.get(f"https://www.instagram.com/explore/tags/{hashtag}/")
+    def find_accounts_url_contain_hashtag(self, hashtag: str, n: int) -> (list, list):
+        posts = self.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/", n)
 
-        posts = self.find_posts_in_page(n)
-
-        # x = 0
-        # links = self.driver.find_elements_by_xpath("//a[@href]")
-        # while x < n:
-        #     post = links[x].get_attribute("href")
-        #     if "/p/" in post:
-        #         posts.append(post)
-        #         x += 1
+        accounts_url = []
+        accounts_name = []
 
         for post in posts:
             self.driver.get(post)
             sleep(1)
-            self.accounts_name.append(
-                "https://www.instagram.com/" + self.driver.find_element_by_xpath("//div[@class='e1e1d']").text)
+            username = self.driver.find_element_by_xpath("//div[@class='e1e1d']").text
+            accounts_name.append(username)
+            accounts_url.append("https://www.instagram.com/" + username)
 
-    def find_m_last_posts(self, url: str, m: int) -> list:
-        self.driver.get(url)
-        posts = self.find_posts_in_page(m)
+        return accounts_url, accounts_name
+
+    def find_m_last_posts_all_accounts(self, accounts_url: list, m: int) -> list:
+        posts = []
+        for url in accounts_url:
+            posts.append(self.find_counted_posts_in_page(url, m))
 
         return posts
 
-    def CrawlComment(self, url: str):
+    def crawl_comment(self, url: str) -> (list, list):
         self.driver.get(url)
 
         error = 0
@@ -127,10 +125,12 @@ class InstagramCrawler:
             except IndexError:
                 error += 1
 
+        posts_data, comments_data = {}, []
+
         links = self.driver.find_elements_by_class_name("C4VMK")
         if links:
             post = str(links[0].text).split("\n")
-            self.posts_data[url] = {"post": {"username": post[0], "caption": post[1:-1]}, "comments": []}
+            posts_data[url] = {"post": {"username": post[0], "caption": post[1:-1]}, "comments": []}
 
             for link in links:
                 username, comment = [i.text for i in link.find_elements_by_tag_name("span")]
@@ -138,35 +138,48 @@ class InstagramCrawler:
                 like = [i.text for i in link.find_elements_by_tag_name("button") if i.text not in ['Reply', '']]
                 like = int(like[0].split(" ")[0]) if like else 0
 
-                self.posts_data[url]['comments'].append({"username": username, "comment": comment, "likes": like})
+                posts_data[url]['comments'].append({"username": username, "comment": comment, "likes": like})
 
-                self.comments_data.append(
+                comments_data.append(
                     {"username": username, "comment": comment, "likes": like, "post_username": post[0]})
+
+        return posts_data, comments_data
 
     def scroll_page(self):
         sleep(3)
         return self.driver.execute_script(
             "window.scrollTo(0, document.body.scrollHeight);var scrolldown=document.body.scrollHeight;return scrolldown;")
 
+    @staticmethod
+    def duplicated_remover(dup: list) -> list:
+        seen = set()
+        seen_add = seen.add
+        return [x for x in dup if not (x in seen or seen_add(x))]
+
 
 if __name__ == '__main__':
-    instagram = InstagramCrawler()
-
+    n, m = 100, 10
+    hashtag = "pizza"
     signed_in = True
 
+    instagram = InstagramCrawler()
+
     if not signed_in:
-        instagram.driver = instagram.set_driver()
+        instagram.driver = InstagramCrawler.set_driver()
         instagram.driver.get('https://www.instagram.com/')
         instagram.login()
 
     else:
-        instagram.driver = instagram.signed_in_driver()
+        instagram.driver = InstagramCrawler.signed_in_driver()
 
-    instagram.find_accounts_name_contain_hashtag()
-    # lister = self.find_m_last_posts("https://www.instagram.com/rubic979/", 200)
-    # print(len(lister), lister, sep="\n")
+    instagram.accounts_url, instagram.accounts_name = instagram.find_accounts_url_contain_hashtag(hashtag, n)
+    posts_to_be_crawled = instagram.find_m_last_posts_all_accounts(instagram.accounts_url, m)
 
-    # print(self.comments_data)
+    for post in posts_to_be_crawled:
+        posts_data, comments_data = instagram.crawl_comment(post)
+
+        instagram.posts_data.update(posts_data)
+        instagram.comments_data.extend(comments_data)
 
 
 
@@ -177,7 +190,7 @@ if __name__ == '__main__':
 #          'https://www.instagram.com/p/CYRcl5lOQjR/', 'https://www.instagram.com/p/CYPCKbsMqFW/',
 #          'https://www.instagram.com/p/CYPqCynvAM7/', 'https://www.instagram.com/p/CYRxcTztEEe/']
 #
-# accounts_name = ['https://www.instagram.com/80sthen80snow', 'https://www.instagram.com/lauradiana000',
+# accounts_url = ['https://www.instagram.com/80sthen80snow', 'https://www.instagram.com/lauradiana000',
 #                  'https://www.instagram.com/atawich.turkiye',
 #                  'https://www.instagram.com/pancakes.and.protein.shakes',
 #                  'https://www.instagram.com/della_bistro', 'https://www.instagram.com/eat4naples',
