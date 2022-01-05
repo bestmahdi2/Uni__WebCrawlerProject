@@ -7,6 +7,10 @@ import pandas as pd
 from bs4 import BeautifulSoup
 import requests
 import threading
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
 
 
 class InstagramCrawler:
@@ -21,38 +25,39 @@ class InstagramCrawler:
     def set_driver() -> webdriver.Chrome:
         options = webdriver.ChromeOptions()
         options.add_argument("start-maximized")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
+        # options.add_argument('--headless')
+        options.add_argument("--user-data-dir=" + getcwd() + sep + "UserData")
+        options.page_load_strategy = 'normal'
 
         driver = webdriver.Chrome(options=options, executable_path='chromedriver96.exe')
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-            "userAgent": 'Chrome/85.0.4183.102 (Windows NT 10.0; Win64; x64)'})
 
         return driver
 
-    def login(self) -> None:
-        # login
-        username = 'origins1234'
-        password = 'Instagram@ok'
+    def login(self, username, password) -> None:
+        try:
+            WebDriverWait(self.driver, 4).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='username']")))
 
-        # login
-        sleep(3)
-        username_box = self.driver.find_element_by_css_selector("input[name='username']")
-        password_box = self.driver.find_element_by_css_selector("input[name='password']")
-        username_box.clear()
-        password_box.clear()
-        username_box.send_keys(username)
-        password_box.send_keys(password)
+            username_box = self.driver.find_element_by_css_selector("input[name='username']")
+            password_box = self.driver.find_element_by_css_selector("input[name='password']")
+            username_box.clear()
+            password_box.clear()
+            username_box.send_keys(username)
+            password_box.send_keys(password)
 
-        login = self.driver.find_element_by_css_selector("button[type='submit']").click()
+            self.driver.find_element_by_css_selector("button[type='submit']").click()
 
-        # # save your login info?
-        # login_info = self.driver.find_element_by_xpath('//*[@id="react-root"]/div/div/section/main/div/div/div/section/div/button').click()
-        # sleep(3)
-        # noti = self.driver.find_element_by_xpath('/html/body/div[5]/div/div/div/div[3]/button[2]').click()
-        # sleep(3)
+            # Not now buttons
+            WebDriverWait(self.driver, 7).until(
+                EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Not Now')]")))
+            self.driver.find_element_by_xpath("//button[contains(text(), 'Not Now')]").click()
+
+            WebDriverWait(self.driver, 7).until(
+                EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Not Now')]")))
+            self.driver.find_element_by_xpath("//button[contains(text(), 'Not Now')]").click()
+
+        except TimeoutException:
+            print("No Internet")
 
     @staticmethod
     def signed_in_driver() -> webdriver.Chrome:
@@ -97,19 +102,30 @@ class InstagramCrawler:
         accounts_url = []
         accounts_name = []
 
+        xpath_user = '//*[@id="react-root"]/div/div/section/main/div/div[1]/article/div/div[2]/div/div[1]/div/' + \
+                     'header/div[2]/div[1]/div[1]/span/a'
+
         for post in posts:
             self.driver.get(post)
-            sleep(1)
-            username = self.driver.find_element_by_xpath("//div[@class='e1e1d']").text
-            accounts_name.append(username)
-            accounts_url.append("https://www.instagram.com/" + username)
+            try:
+                WebDriverWait(self.driver, 3).until(EC.presence_of_element_located((By.XPATH, xpath_user)))
+
+                username = self.driver.find_element_by_xpath(xpath_user).text
+                accounts_name.append(username)
+                accounts_url.append("https://www.instagram.com/" + username)
+
+            except common.exceptions.NoSuchElementException:
+                pass
+
+            except TimeoutException:
+                pass
 
         return accounts_url, accounts_name
 
     def find_m_last_posts_all_accounts(self, accounts_url: list, m: int) -> list:
         posts = []
         for url in accounts_url:
-            posts.append(self.find_counted_posts_in_page(url, m))
+            posts.extend(self.find_counted_posts_in_page(url, m))
 
         return posts
 
@@ -117,13 +133,23 @@ class InstagramCrawler:
         self.driver.get(url)
 
         error = 0
-        while error < 5:
-            sleep(1)
+        while error < 10:
             try:
+                WebDriverWait(self.driver, 3).until(EC.presence_of_element_located((By.CLASS_NAME, "C4VMK")))
+                links = self.driver.find_elements_by_class_name("C4VMK")
+
                 button = self.driver.find_elements_by_css_selector("[aria-label='Load more comments']")[0]
                 button.click()
+
+                # if no more comments available while there is a "load more comments" button.
+                if links == self.driver.find_elements_by_class_name("C4VMK"):
+                    error += 1
+
             except IndexError:
                 error += 1
+
+            except TimeoutException:
+                pass
 
         posts_data, comments_data = {}, []
 
@@ -133,15 +159,19 @@ class InstagramCrawler:
             posts_data[url] = {"post": {"username": post[0], "caption": post[1:-1]}, "comments": []}
 
             for link in links:
-                username, comment = [i.text for i in link.find_elements_by_tag_name("span")]
+                try:
+                    username, comment = [i.text for i in link.find_elements_by_tag_name("span")]
 
-                like = [i.text for i in link.find_elements_by_tag_name("button") if i.text not in ['Reply', '']]
-                like = int(like[0].split(" ")[0]) if like else 0
+                    like = [i.text for i in link.find_elements_by_tag_name("button") if i.text not in ['Reply', '']]
+                    like = int(like[0].split(" ")[0]) if like else 0
 
-                posts_data[url]['comments'].append({"username": username, "comment": comment, "likes": like})
+                    posts_data[url]['comments'].append({"username": username, "comment": comment, "likes": like})
 
-                comments_data.append(
-                    {"username": username, "comment": comment, "likes": like, "post_username": post[0]})
+                    comments_data.append(
+                        {"username": username, "comment": comment, "likes": like, "post_username": post[0]})
+
+                except ValueError:
+                    pass
 
         return posts_data, comments_data
 
@@ -158,16 +188,17 @@ class InstagramCrawler:
 
 
 if __name__ == '__main__':
-    n, m = 100, 10
+    n, m = 1, 1
     hashtag = "pizza"
-    signed_in = True
 
     instagram = InstagramCrawler()
 
-    if not signed_in:
+    if "UserData" not in listdir("."):
+        username = 'origins1234'
+        password = 'Instagram@ok'
         instagram.driver = InstagramCrawler.set_driver()
         instagram.driver.get('https://www.instagram.com/')
-        instagram.login()
+        instagram.login(username, password)
 
     else:
         instagram.driver = InstagramCrawler.signed_in_driver()
@@ -181,8 +212,7 @@ if __name__ == '__main__':
         instagram.posts_data.update(posts_data)
         instagram.comments_data.extend(comments_data)
 
-
-
+    print(instagram.comments_data)
 
 # posts = ['https://www.instagram.com/p/CYPXzXzv73u/', 'https://www.instagram.com/p/CYRCnqssB78/',
 #          'https://www.instagram.com/p/CYO1S8VKAo0/', 'https://www.instagram.com/p/CYP7PkxrZ3u/',

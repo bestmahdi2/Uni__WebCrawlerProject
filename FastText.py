@@ -1,48 +1,109 @@
 import re
+from pickle import dump, load
 
 from InstagramCrawler import InstagramCrawler
 import fasttext
 
 
-class FastText(InstagramCrawler):
-    def __init__(self):
-        super().__init__([])
+class FastText:
+    def __init__(self, icrawler: InstagramCrawler):
+        super().__init__()
         # model = fasttext.train_supervised(input="cooking.train", lr=1.0, epoch=25, wordNgrams=2)
         self.comments = {}
         self.cleaned_comments = {}
+        self.labeled_comments = {}
+        self.icrawler = icrawler
 
-    def comments_getter(self):
+    def comments_getter(self, tashtags: list, number_of_posts: int) -> dict:
         comments = {}
-        for hashtag in ["applewatch", "macbookpro", "appleiphone"]:
-            self.driver.get(f"https://www.instagram.com/explore/tags/{hashtag}/")
-            posts = self.find_posts_in_page(3)
+        for hashtag in tashtags:
+            comments_data = []
+
+            posts = self.icrawler.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/", number_of_posts)
             print(f"posts found for {hashtag}")
 
             for post in posts:
                 print(f"crawl {post}")
-                self.CrawlComment(post)
-                print("length of comments were found: ", len(self.comments_data))
+                _, comments_data = self.icrawler.crawl_comment(post)
+                print("length of comments were found: ", len(comments_data))
 
-            self.comments[hashtag] = self.comments_data
-            self.comments_data = []
+            comments[hashtag] = comments_data
 
-    def cleaning(self):
-        for key in self.comments.keys():
-            self.cleaned_comments[key] = []
-            for comment in self.comments[key]:
-                text = self.hashtag_account_remover(comment['comment'])
-                text = self.emoji_remover(text).lower().replace("\n", " ").replace("  ", " ")
-                text = self.non_ascii_remover(text)
-                text = self.useless_remover(text)
+        return comments
 
-                if len(text) > 3:
-                    self.cleaned_comments[key].append(text)
+    @staticmethod
+    def comments_labeling(cleaned_comments: dict) -> dict:
+        labeled_comments = {}
+        deleted_comments = {}
+
+        print(", ".join([f'{key}: {len(cleaned_comments[key])} comments' for key in cleaned_comments.keys()]))
+
+        print("Enter 'g'/'b'/'i' for good/bad/inactive and enter nothing for deleting this comment.")
+
+        for key in cleaned_comments.keys():
+            labeled_comments[key] = {'good': [], 'bad': [], 'inactive': []}
+            deleted_comments[key] = []
+
+            length = len(cleaned_comments[key])
+
+            print('\nhashtag:', key)
+
+            x = 1
+            for comment in cleaned_comments[key]:
+                inputer = input(f'{x}/{length}) {comment} > ')
+
+                if inputer.lower() == 'g':
+                    labeled_comments[key]['good'].append(comment)
+
+                elif inputer.lower() == 'b':
+                    labeled_comments[key]['bad'].append(comment)
+
+                elif inputer.lower() == 'i':
+                    labeled_comments[key]['inactive'].append(comment)
+
+                else:
+                    deleted_comments[key].append(comment)
+
+                x += 1
+
+        print(labeled_comments)
+        print("--------------")
+        print(deleted_comments)
+
+        return labeled_comments
+
+    @staticmethod
+    def comments_train_preparing(labeled_comments: dict):
+        for key in labeled_comments.keys():
+            temp_comments_keeper = []
+            for label in labeled_comments[key].keys():
+                temp_comments_keeper += [f"__label__{label} {comment}" for comment in labeled_comments[key][label]]
+
+            FastText.save_train(temp_comments_keeper, key)
+
+    @staticmethod
+    def clean_comments(comments: dict) -> dict:
+        cleaned_comments = {}
+
+        for key in comments.keys():
+            cleaned_comments[key] = []
+            for comment in comments[key]:
+                text = FastText.hashtag_account_remover(comment['comment'])
+                text = FastText.emoji_remover(text).lower().replace("\n", " ").replace("  ", " ")
+                text = FastText.non_ascii_remover(text)
+                text = FastText.useless_remover(text)
+
+                if len(text) > 3:  # remove comments under 3 characters
+                    cleaned_comments[key].append(text)
 
             seen = set()
             seen_add = seen.add
-            self.cleaned_comments[key] = [x for x in self.cleaned_comments[key] if not (x in seen or seen_add(x))]
+            cleaned_comments[key] = [x for x in cleaned_comments[key] if not (x in seen or seen_add(x))]
 
-    def emoji_remover(self, text):
+        return cleaned_comments
+
+    @staticmethod
+    def emoji_remover(text):
         emoji_pattern = re.compile("["
                                    u"\U0001F600-\U0001F64F"  # emoticons
                                    u"\U0001F300-\U0001F5FF"  # symbols & pictographs
@@ -66,15 +127,18 @@ class FastText(InstagramCrawler):
 
         return emoji_pattern.sub(r'', text)
 
-    def hashtag_account_remover(self, text):
+    @staticmethod
+    def hashtag_account_remover(text):
         hashtag_account_pattern = re.compile("(@[A-Za-z0-9_]+)|(#[A-Za-z0-9_]+)")
         return hashtag_account_pattern.sub(r'', text)
 
-    def non_ascii_remover(self, text):
+    @staticmethod
+    def non_ascii_remover(text):
         encoded_string = text.encode("ascii", "ignore")
         return encoded_string.decode()
 
-    def useless_remover(self, text):
+    @staticmethod
+    def useless_remover(text):
         for i in ['`', '~', '@', '#', '$', '%', '^', '*', '/', '\\', '\"', '(', ')', '[', ']', '-', '<', '>', ',', '_',
                   '+', '-', '_', '=']:
             text = text.replace(i, "")
@@ -91,656 +155,55 @@ class FastText(InstagramCrawler):
 
         return text
 
+    def save_comments(self):
+        with open('saved_comments.pkl', 'wb') as f:
+            dump(self.labeled_comments, f)
+
+    def load_comments(self):
+        with open('saved_comments.pkl', 'rb') as f:
+            self.labeled_comments = load(f)
+
+    @staticmethod
+    def save_train(labeled_train: list, key: str):
+        """save each key"""
+
+        with open(f'saved_train_{key}.txt', 'w') as f:
+            f.write("\n".join(labeled_train))
+
+    @staticmethod
+    def load_train(keys: list) -> dict:
+        """load all keys"""
+        labeled_train = {}
+
+        for key in keys:
+            with open(f'saved_train_{key}.txt', 'r') as f:
+                labeled_train[key] = f.readlines()
+
+        return labeled_train
+
 
 if __name__ == '__main__':
-    F = FastText()
-    # F.comments_getter()
+    signed_in = True
+    icrawler = InstagramCrawler()
 
-    # region commments
-    comments = {'applewatch': [{'username': 'leokellr',
-                                'comment': 'Time flies.\n\n#applewatch #timeflies #appleproducts #applewatchseries7 #apple',
-                                'likes': 0, 'post_username': 'leokellr'},
-                               {'username': '__youssef__10', 'comment': '🔥🔥🔥 nice photo pro', 'likes': 1,
-                                'post_username': 'leokellr'},
-                               {'username': 'woodgraphic.ha',
-                                'comment': 'Yesssssss, always. We need to stay focus on our goal.',
-                                'likes': 1, 'post_username': 'leokellr'},
-                               {'username': 'iandreamosca_', 'comment': 'Amazing shot Leo!🔥', 'likes': 1,
-                                'post_username': 'leokellr'},
-                               {'username': 'appletodaynow', 'comment': 'It sure does🤩 love the shot Leo!', 'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'renzsadiwa', 'comment': 'Love this shot Leo 🙌🔥 keep it up brother!',
-                                'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'e__a__z__y_', 'comment': '🔥🔥wonderful✨😍', 'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'raidacfc', 'comment': 'Gorgeous shot 🔥🔥🔥', 'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'tsh.tech', 'comment': 'wow thats a great shot bro😍🔥', 'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'cosmic.wireless', 'comment': 'Such a minimal shot 💯', 'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'tomsmdt.tech', 'comment': 'You take amazing photos 🔥', 'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'louijhepagay', 'comment': 'So clean ❤️', 'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'bradley.moylon', 'comment': '💯💯', 'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'attiyt_', 'comment': 'Beautiful shot! 🔥👌', 'likes': 0,
-                                'post_username': 'leokellr'},
-                               {'username': 'theapplebias',
-                                'comment': 'Haven’t used this watch face in a long time. I still think it’s one of the bests though.\n\n#applewatch #series7 #applewatchseries7 #watchfaces #applewatchface',
-                                'likes': 0, 'post_username': 'theapplebias'},
-                               {'username': 'howie23',
-                                'comment': 'Looking like a really hot week stay cool my friend 😂',
-                                'likes': 0, 'post_username': 'theapplebias'},
-                               {'username': 'apple.watchlove', 'comment': 'Looks good!', 'likes': 0,
-                                'post_username': 'theapplebias'},
-                               {'username': 'abed1991givtag', 'comment': 'How much', 'likes': 0,
-                                'post_username': 'theapplebias'},
-                               {'username': 'apple.watchlove',
-                                'comment': 'Another New Years post! I think it’s so fun that apple leaves these fireworks available on your watch for the whole day! Thought I’d be fancy and put on my new gold Milanese loop for New Years. #happynewyear #milaneseloop #goldmilaneseloop #applewatch #applewatchbands #applewatchfans #applewatch7 #applewatchfresh #applewatchlove #applewatchstyle',
-                                'likes': 0, 'post_username': 'apple.watchlove'}, {'username': 'appletldr',
-                                                                                  'comment': 'I always enjoy the annual animated notifications like this. And the birthday one! 😂',
-                                                                                  'likes': 2,
-                                                                                  'post_username': 'apple.watchlove'},
-                               {'username': 'applewatchpunk',
-                                'comment': 'And they used to disappear after tapping…. Now we get to keep them for a day! ;-}',
-                                'likes': 1, 'post_username': 'apple.watchlove'},
-                               {'username': 'applewatchdave', 'comment': 'Happy New Year great shot', 'likes': 1,
-                                'post_username': 'apple.watchlove'},
-                               {'username': 'applereviewsmonthly', 'comment': 'I love it! It’s very Apple like 😍',
-                                'likes': 1,
-                                'post_username': 'apple.watchlove'}], 'macbookpro': [{'username': 'leonfriedrichsen',
-                                                                                      'comment': 'I switched to HTML, CSS and JS for my personal page 🤪\n\n🤔 Why did I switch? I switched because it’s easier to create small websites which are responsive with HTML and CSS. At least for me. But for bigger projects, I would definitely choose Flutter Web.\n\n🤓 Do you have your own website?\n\n#macbook #macbookpro #webdeveloper #developer #coder #programmer #website #hustler',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'as.codes',
-                                                                                      'comment': 'Woah awesome shot and angle 😍😍',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'as.codes',
-                                                                                      'comment': 'Exactly totally agree with you. Working with html, css and javascript is fun.',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'tobiasgustaverik',
-                                                                                      'comment': 'Yeah. Simple one portfolio page, HTML, CSS and JS 😀⚡️⚡️',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'ssmirebrahimi',
-                                                                                      'comment': 'Hey, would you please tell me what is the model and brand of your mousepad?',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'big_law__',
-                                                                                      'comment': '🔥🔥🔥',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'mukhtar_onif',
-                                                                                      'comment': 'Yuppp....I do. With HTML,CSS and Js. But I dont use Flutter though. I use Java😢',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'world.bidou',
-                                                                                      'comment': '🔥',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'laaheeh',
-                                                                                      'comment': 'What a wonderful post！Happy holidays🎄❄️🎅',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'chichicodes',
-                                                                                      'comment': 'Exactly it easy we use it most for HTML CSS JavaScript and react for web app',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'codin_guy',
-                                                                                      'comment': 'All the best bro for your new website! I started my tech journey today, do follow my page would mean a world to me!😇',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'tdmwebsolutions',
-                                                                                      'comment': 'Yes mine is made of html, CSS and js',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'as.codes',
-                                                                                      'comment': "Nope I don't have 👏",
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'veeydisplay',
-                                                                                      'comment': 'Wow 😍❤️', 'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'chaerulumamn',
-                                                                                      'comment': 'How about Laravel?',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'rubenoliveira.tech',
-                                                                                      'comment': 'Yes! Mine is built in Flask :)\nYou can check it here -> rubenoliveira.tech 👨\u200d💻',
-                                                                                      'likes': 2,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'roman.shevchenk0',
-                                                                                      'comment': '🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'gedeadinnugrohocsw',
-                                                                                      'comment': 'Website is already become my life. Always visit it for knowing information, Entertainment, Download and much more',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'effendi.tech',
-                                                                                      'comment': 'Nɪᴄᴇ...', 'likes': 0,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'amir.code.official',
-                                                                                      'comment': '😍🔥💯', 'likes': 0,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'nico_neruda',
-                                                                                      'comment': 'What would be considered a bigger project? I’m new to development and trying to immerse myself and learn as much as possible',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'muhammad__abdullo',
-                                                                                      'comment': '@asurushior M',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'leonfriedrichsen'},
-                                                                                     {'username': 'johnnyhochstetler',
-                                                                                      'comment': 'The Perfect Mobile Creative Setup 🔥\n\n- M1 Max MacBook Pro\n- Sony fx3 + 16-35 2.8 GM\n- @ghostenergy\n- AirPods Pro\n- iPhone 13 Pro Max\n- Lighting SD Reader\n\nI’m more than confident that could get done pretty much any type of creative work on the go with this set up. How about you?? What am I missing? 👇🏻\n\n#apple #tech #macbookpro #homeoffice',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'johnnyhochstetler',
-                                                                                      'comment': '-\n-\n-\n-\n-\n-\n-\n-\n\n#setupinspo #workfromhome #desksetup #sonyfx3 #workhardanywhere #minimalsetups #hustletouch #productivespaces #teamsony #designyourworkspace #setupinspiration #cleansetups #dreamdesks #m1 #m1maxmacbookpro #workspacegoals #workspaceinspo #isetups #workhardanywhere #officeinspo #minimalsetups #airpods #ghostlifestyle #ghostenergy #youtuber #edc',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'raulortega_',
-                                                                                      'comment': 'Need that wallpaper!',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'cleanminimalism',
-                                                                                      'comment': 'Portability at its best 🙌',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'the_mike_mccloskey',
-                                                                                      'comment': 'Clean AF 🔥',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'cosmic.wireless',
-                                                                                      'comment': 'Clean!', 'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {
-                                                                                         'username': 'davethephotographer___',
-                                                                                         'comment': 'Amazing set up',
-                                                                                         'likes': 1,
-                                                                                         'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'djalexkingmusic',
-                                                                                      'comment': '😮👏', 'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'darkestmoon_.93',
-                                                                                      'comment': 'All the essentials 🔥 you can easily smash it with this setup man!',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'jonnyroams',
-                                                                                      'comment': 'Ghost all day 💪🏼💪🏼',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'ben.photographyyy',
-                                                                                      'comment': 'Which wallpaper is that?',
-                                                                                      'likes': 2,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'azat.yerzhan',
-                                                                                      'comment': 'SD card Adapter -why?',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'justinmob',
-                                                                                      'comment': 'Clean af', 'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'christiano.gio',
-                                                                                      'comment': 'This is too clean 💎',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'armin.frji',
-                                                                                      'comment': 'Wonderful setup🔥, where can i find the wallpaper?',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'hadiaaan',
-                                                                                      'comment': 'nice desktop wallpaper, is it default from apple?',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'kenduejones',
-                                                                                      'comment': '🔥🔥🔥🔥🔥🔥🔥🔥🔥',
-                                                                                      'likes': 2,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'davidaaron_is',
-                                                                                      'comment': 'Okay i buying 16 inch again. 14 inch was too small after all.',
-                                                                                      'likes': 2,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'canoopsy',
-                                                                                      'comment': 'Clean af', 'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'akas.khoune',
-                                                                                      'comment': 'My hart... ❤️🔥',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'miguelangelrv2021',
-                                                                                      'comment': 'Me pasar el fondo de pantalla pli',
-                                                                                      'likes': 2,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'wonderbryce',
-                                                                                      'comment': 'Your gaming pc In the back like 🥺',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'milad.afrand1382',
-                                                                                      'comment': '😍😍😍😍😍😮😮😮👏👏👏👏👏❤️❤️',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'wyyyyaaatt',
-                                                                                      'comment': 'I didn’t now ghost had a drink, that’s cool! So that’s where my eyes went first 😂 amazing setup dude! Clean 🧼',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'myhomeheadquarters',
-                                                                                      'comment': 'Very cool setup! 🙌🔥',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'johnnyhochstetler'},
-                                                                                     {'username': 'reverelia',
-                                                                                      'comment': "Here are some great note-taking 📝 web apps, both free and paid.\n\n➳ Zoho Notebook @zoho☟\nMake notes, create lists, and keep your files organized. Notebook lets you create digital notebooks and note cards in any browser.\n\n➳ Evernote @evernote ☟\nText notes, audio clips, images, PDF documents, scanned handwritten pages, emails, websites, and more can be added. Notes can be sorted and organized easily. \n\n➳ Milanote @milanoteapp☟\nMilanote is an easy-to-use tool that allows you to organize your ideas and projects on visual boards.\n\n➳ OneNote @microsoft365 ☟\nIt is incredibly flexible when it comes to taking notes. You can attach files, images, and audio files; to draw, use the free drawing and highlighting tools.\n\n➳ iCloud Notes @apple☟\nApple notes / iCloud notes. It's possible to add text, images, scan documents, draw or handwrite, create checklists, add tables, and add multiple different things to a single note.\n\n➳ Google Keep @google ☟\nKEEP integrates with the rest of the Google ecosystem so you can save links, notes, and emails, capture what's on your mind quickly, and remind yourself later when you want.\n\nIf you have any web-based note-taking apps that you use, let me know.\n\n❥🏷️ ➻➻➻ Download Free \n❀ December Wallpapers \n❀ Study schedule printables \n🔗 Link in my bio.\n❥ Note: If you are opening the link from a phone, copy and paste the download link into the browser to avoid access denied errors.\n\nFollow @reverelia for study, work, and tech tips, plus get free wallpapers and study templates 😊🤓\U0001f90e💫\n❀\n❀\n❀\n❀\n❀\n❥🏷️❀❀\n#reverelia #desktop #website #web\n#notes #digitalnotetaking #timemanagementtips  #learningathome #study #productivitytools #productivity #productivitytips #workfromanywhere #workremotely #officespace #ios #macbookpro #laptop  #womenintech #workspacegoals #workfromhomelife #learning #selflearning #sidehustle #student #studentlife  #studygram",
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'jaemouss',
-                                                                                      'comment': 'THANK YOUUUU 🥺\U0001f90d',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'determinedtosuccess',
-                                                                                      'comment': "This is great 😍 definitely saving these ☺️ I am using Onenote but maybe I'll try some new ones, thank you 😍❤️",
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'unasadllama',
-                                                                                      'comment': 'I love zoho notebook',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'studywithanna8',
-                                                                                      'comment': 'This soooo useful 😍😍 thank you for this ❤️❤️',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'studyingdigital',
-                                                                                      'comment': 'I love this 😍',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': '_unique._.style_',
-                                                                                      'comment': 'fantastic dear❤️❤️',
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'sustainablyprity',
-                                                                                      'comment': 'Wow! So much of researched knowledge! Thank you for sharing ❤️',
-                                                                                      'likes': 2,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'sunshinebruise',
-                                                                                      'comment': "does zoho allow handwritten notes ??? notion is so good but the only thing it lacks is handwritten notes & the fact that you can't customize it :((( but honestly i take my notes through canva because it has a variety of fonts which i love :) it gives an ipad like feel for an android user 😭 so basically a combination of canva + notion + samsung notes & sometimes google keep....for different note taking types",
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'sunsetwithstars',
-                                                                                      'comment': "notion it's my favorite, there's so many functions for free",
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'ridhimasaroya',
-                                                                                      'comment': "Absolutely love Milanote!!! It's especially great for people who like to visualise concepts & projects.",
-                                                                                      'likes': 1,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'otherside.life',
-                                                                                      'comment': 'Lol notion should be the first one',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'cleanminimalism',
-                                                                                      'comment': 'Some really cool suggestions! 🙌',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'fleurting101',
-                                                                                      'comment': 'Love this! These are great apps!🙌',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 's_dailylife_m',
-                                                                                      'comment': 'Amaziiiiiiing!😍',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'jassminelegaspi',
-                                                                                      'comment': 'OneNote 🙌🏽',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'vante.view',
-                                                                                      'comment': 'in absolute LOVE with your account',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'abubakar.7196',
-                                                                                      'comment': "Saving this 👍Any apps for linux that support handwriting (I'm using arch btw)",
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {
-                                                                                         'username': 'stickynotes_n_coffee',
-                                                                                         'comment': 'Thank you so much for sharing this!',
-                                                                                         'likes': 0,
-                                                                                         'post_username': 'reverelia'},
-                                                                                     {'username': 'thepuranik.blog',
-                                                                                      'comment': "Here are some more suggestions (especially if you're into research based fields):\n•\nObsidian.md: Obsidian is a 'IDE for thought' that works with a folder of Markdown files. It is modelled to allow connections between different notes to generate creative thoughts. It can be moulded to your workflow and has an amazing community of users that make plugins to make it even more compatible with your needs. (Free Forever)\n•\nLogseq : Similar to Obsidian but with a few remarkable distinctions. Most importantly, Logseq is an outliner, i.e. it only allows you to make lists, this is especially beneficial if you want to write something. (Free and Open Source)",
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'},
-                                                                                     {'username': 'vinnnnnnnnwu',
-                                                                                      'comment': 'To add, notion is available in Linux as well',
-                                                                                      'likes': 0,
-                                                                                      'post_username': 'reverelia'}],
-                'appleiphone': [{'username': 'iphone_win_offer',
-                                 'comment': '𝐔𝐍𝐁𝐎𝐗𝐈𝐍𝐆" 𝐋𝐞𝐭 𝐬𝐨𝐦𝐞𝐭𝐡𝐢𝐧𝐠 𝐧𝐞𝐰 𝐬𝐭𝐚𝐫𝐭 𝐢𝐧 𝐭𝐡𝐞 𝐧𝐞𝐰 𝐲𝐞𝐚𝐫🎉🎊. 𝐓𝐡𝐢𝐬 𝐭𝐢𝐦𝐞 𝐭𝐡𝐞 𝐭𝐨𝐩 𝟏𝟎 𝐥𝐮𝐜𝐤𝐲 𝐩𝐞𝐨𝐩𝐥𝐞 𝐚𝐫𝐞 𝐠𝐞𝐭𝐭𝐢𝐧𝐠 𝐢𝐏𝐡𝐨𝐧𝐞 𝟏𝟑 𝐨𝐟 𝐭𝐡𝐞𝐢𝐫 𝐜𝐡𝐨𝐢𝐜𝐞. 𝐒𝐨 𝐖𝐞 𝐬𝐚𝐲 𝐩𝐚𝐫𝐭𝐢𝐜𝐢𝐩𝐚𝐭𝐞 𝐧𝐨𝐰 𝐰𝐢𝐭𝐡𝐨𝐮𝐭 𝐝𝐞𝐥𝐚𝐲😃\n\nHow to participate?\n\n𝟏/𝐆𝐨 𝐭𝐨 𝐭𝐡𝐞 𝐰𝐞𝐛𝐬𝐢𝐭𝐞 𝐂𝐡𝐨𝐨𝐬𝐞 𝐚𝐧 𝐢𝐏𝐡𝐨𝐧𝐞 𝟏𝟑 𝐦𝐨𝐝𝐞𝐥 𝐲𝐨𝐮 𝐰𝐚𝐧𝐭 (⭕ 𝐢𝐦𝐩𝐨𝐫𝐭𝐚𝐧𝐭 ❗ 𝐈𝐬 𝐡𝐢𝐠𝐡𝐥𝐲 𝐫𝐞𝐪𝐮𝐢𝐫𝐞𝐦𝐞𝐧𝐭 𝐜𝐨𝐦𝐩𝐥𝐞𝐭𝐞 𝐭𝐡𝐞 𝐚𝐧𝐲𝐨𝐧𝐞 𝐬𝐢𝐦𝐩𝐥𝐞 𝐬𝐮𝐫𝐯𝐞𝐲.) 𝐖𝐡𝐞𝐧 𝐲𝐨𝐮 𝐝𝐨𝐧𝐞 𝐲𝐨𝐮𝐫 𝐒𝐮𝐫𝐯𝐞𝐲 𝐓𝐡𝐞𝐧 𝐆𝐢𝐯𝐞 𝐦𝐞 𝐚 𝐬𝐜𝐫𝐞𝐞𝐧𝐬𝐡𝐨𝐭 𝐨𝐧 𝐦𝐲 𝐢𝐧𝐛𝐨𝐱 😃\n𝐓𝐡𝐞 𝐥𝐢𝐧𝐤 𝐢𝐧 𝐓𝐡𝐢𝐬 𝐛𝐢𝐨😃\n\n𝟐/𝐅𝐨𝐥𝐥𝐨𝐰 𝐓𝐡𝐢𝐬 𝐀𝐜𝐜𝐨𝐮𝐧𝐭\n𝟑/𝐥𝐢𝐤𝐞\n𝟒/𝐓𝐚𝐠 𝟏𝟓 𝐅𝐫𝐢𝐞𝐧𝐝𝐬\n𝟓/ 𝐖𝐡𝐞𝐧 𝐚𝐥𝐥 𝐭𝐡𝐞 𝐩𝐫𝐨𝐜𝐞𝐬𝐬𝐞𝐬 𝐚𝐫𝐞 𝐜𝐨𝐦𝐩𝐥𝐞𝐭𝐞, 𝐰𝐫𝐢𝐭𝐞 (𝐃𝐎𝐍𝐄) 𝐢𝐧 𝐭𝐡𝐞 𝐜𝐨𝐦𝐦𝐞𝐧𝐭𝐬.\n\n#iphone #pro #apple #promax #appleiphone #ios #plus #applewatch #mini #appleevent #shotoniphone #iphone14 #smartphone #airpods #iphonegiveaway #iphonecase #newiphone #iphonefree #iphonedaily #technology #tech #iphonebonus #iphonex #applewatchseries #caseiphone #oneplus #applenews #iphonese #iphone13',
-                                 'likes': 0, 'post_username': 'iphone_win_offer'},
-                                {'username': 'lady_lindoh', 'comment': 'I need this phone😢🙌', 'likes': 0,
-                                 'post_username': 'iphone_win_offer'},
-                                {'username': 'vickymiana', 'comment': '❤️❤️❤️❤️', 'likes': 0,
-                                 'post_username': 'iphone_win_offer'},
-                                {'username': 'disha16_____', 'comment': 'Done 👍', 'likes': 0,
-                                 'post_username': 'iphone_win_offer'},
-                                {'username': '4pf_rexford', 'comment': 'I’m waiting for mine', 'likes': 1,
-                                 'post_username': 'iphone_win_offer'},
-                                {'username': 'rana_family_love_ltd', 'comment': '❤️❤️❤️', 'likes': 0,
-                                 'post_username': 'iphone_win_offer'},
-                                {'username': 'iphoneclub27', 'comment': 'Win🔥🔥🔥', 'likes': 2,
-                                 'post_username': 'iphone_win_offer'},
-                                {'username': 'chineduc.o', 'comment': 'How much?', 'likes': 0,
-                                 'post_username': 'iphone_win_offer'},
-                                {'username': 'iphoneclub27', 'comment': 'Win', 'likes': 2,
-                                 'post_username': 'iphone_win_offer'},
-                                {'username': 'lady_lindoh', 'comment': '🙌🙌', 'likes': 0,
-                                 'post_username': 'iphone_win_offer'},
-                                {'username': 'macpiscinaa1048gmail.com2', 'comment': '👏👏👏👏🔥❤️', 'likes': 0,
-                                 'post_username': 'iphone_win_offer'}, {'username': 'bmcshop.co',
-                                                                        'comment': '#apple_iphone\n\nکدوم عضو از این خانواده برای شما کاربرد بیشتری داره؟\n🌨️\nنظرتو برام کامنت کن👇😍\n🌨️\n\nجهت دریافت اطلاع از قیمت ها ، سفارش محصول و هر گونه مشاوره در دایرکت یا قسمت کامنت مراجعه فرمائید.\n🌨️\n\n#Iphone #iphonese #iphone13pro #iphone12 #appleiphone #apple\n#iphone13promax #iphone13mini\n#airpods #applewatch #bmcshop #bmc\n\n#فروشگاه_آنلاین #فروشگاه_اینترنتی #موبایل #فروشگاه #آنلاین_شاپ #موبایل_فروشی #رباط_کریم #پرند #اسلامشهر #بهنام_موبایل #تهران #آیفون #اپل',
-                                                                        'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'rosalia_alarcon_', 'comment': 'Es un sueño 😢😢😮😮😮😍😍😍😍😍😍',
-                                 'likes': 0,
-                                 'post_username': 'bmcshop.co'}, {'username': 'sajad_ghaderi',
-                                                                  'comment': 'برای ما هیچکدام ولی برای زینب خانم گوشیش خیلی کاربرد داره😮',
-                                                                  'likes': 1, 'post_username': 'bmcshop.co'},
-                                {'username': 'nazgol__09223754420', 'comment': 'متخصص از عقب میخوام ❤️❤️❤️❤️',
-                                 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'gilda.geydari', 'comment': 'لطفا دایرکت بدید ممنون', 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'berouz_market', 'comment': '😍😍', 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'be.hnam6027', 'comment': '💎💎💎', 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'be.hnam6027', 'comment': '💜💜', 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'hesammehri44', 'comment': '🔥', 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'hesammehri44', 'comment': '😍', 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'hesammehri44', 'comment': '💓', 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'hesammehri44', 'comment': '❤️', 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd_tkd_', 'comment': '🧡', 'likes': 1, 'post_username': 'bmcshop.co'},
-                                {'username': 'be.hnam6027', 'comment': '💙💙', 'likes': 0,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'be.hnam6027', 'comment': '😍😍', 'likes': 1,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'hesammehri44', 'comment': '✨', 'likes': 1, 'post_username': 'bmcshop.co'},
-                                {'username': 'hesammehri44', 'comment': '💞', 'likes': 1,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'hesammehri44', 'comment': '💙', 'likes': 1,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd45984', 'comment': '💯', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd45984', 'comment': '😍', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd45984', 'comment': '🍁', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd45984', 'comment': '💯', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd45984', 'comment': '😍', 'likes': 0, 'post_username': 'bmcshop.co'},
-                                {'username': 'hesammehri44', 'comment': '💎', 'likes': 1,
-                                 'post_username': 'bmcshop.co'},
-                                {'username': 'mhmd45984', 'comment': '😍', 'likes': 1, 'post_username': 'bmcshop.co'},
-                                {'username': 'mad__mobile',
-                                 'comment': 'Hey i really like your content,I post similar stuff on my account,feel free to check it out, and follow me if you like my content',
-                                 'likes': 0, 'post_username': 'bmcshop.co'}, {'username': 'sandra_hamintong_',
-                                                                              'comment': "𝐈'𝐦 𝐥𝐞𝐚𝐯𝐢𝐧𝐠 𝐚 𝐜𝐨𝐦𝐟𝐨𝐫𝐭𝐚𝐛𝐥𝐞 𝐥𝐢𝐟𝐞 𝐧𝐨𝐰 𝐛𝐞𝐜𝐚𝐮𝐬𝐞 𝐈 𝐠𝐨𝐭 𝐢𝐧𝐯𝐨𝐥𝐯𝐞𝐝 𝐢𝐧 𝐜𝐫𝐲𝐩𝐭𝐨 𝐚𝐧𝐝 𝐟𝐨𝐫𝐞𝐱 𝐭𝐡𝐞 𝐦𝐨𝐬𝐭 𝐥𝐞𝐠𝐢𝐭 𝐭𝐫𝐚𝐝𝐞𝐫 𝐨𝐧 𝐭𝐡𝐞 𝐢𝐧𝐭𝐞𝐫𝐧𝐞𝐭 𝐢𝐬 𝐡𝐞𝐥𝐩𝐢𝐧𝐠 𝐦𝐞 𝐞𝐚𝐫𝐧 $𝟏𝟏𝐤 𝐰𝐞𝐞𝐤𝐥𝐲 𝐢𝐧 𝐬𝐨 𝐠𝐫𝐚𝐭𝐞𝐟𝐮𝐥 @pro_fx_traderalex",
-                                                                              'likes': 1,
-                                                                              'post_username': 'bmcshop.co'},
-                                {'username': 'iphone_apple_collect',
-                                 'comment': '𝐠𝐢𝐯𝐢𝐧𝐠 𝐚𝐰𝐚𝐲 𝐛𝐫𝐚𝐧𝐝 𝐧𝐞𝐰 𝐢𝐩𝐡𝐨𝐧𝐞 📲\n𝐚𝐥𝐥 𝟐𝟓𝟔 𝐠𝐛☢️\n𝙈𝙪𝙨𝙩 𝙛𝙤𝙡𝙡𝙤𝙬 𝘼𝙇𝙇 𝙨𝙩𝙚𝙥𝙨 𝙗𝙚𝙡𝙤𝙬 𝙩𝙤 𝙬𝙞𝙣!\n🎁🎁\n\n✅ʟɪᴋᴇ ᴏᴜʀ ᴘᴏꜱᴛ👍\n✅Follow Must\n✅𝘾𝙤𝙢𝙢𝙚𝙣𝙩 𝙗𝙚𝙡𝙤𝙬 𝙖𝙨 𝙢𝙖𝙣𝙮 𝙩𝙞𝙢𝙚𝙨 𝙖𝙨 𝙮𝙤𝙪 𝙘𝙖𝙣! ❶ 𝘾𝙤𝙢𝙢𝙚𝙣𝙩 = １ 𝙚𝙣𝙩𝙧𝙮\n✅𝐏𝐥𝐞𝐚𝐬𝐞 𝐜𝐡𝐞𝐜𝐤 𝐦𝐲 𝐛𝐢𝐨 𝐥𝐢𝐧𝐤 𝐚𝐧𝐝 𝐜𝐥𝐚𝐢𝐦 𝐲𝐨𝐮𝐫 "𝐈𝐏𝐇𝐎𝐍𝐄"\n\n#iphone12 #iphonexs #iphonex #caseiphone #giveawayiphone #iphone6 #iphone6plus #iphone13#iphone13pro #iphone8 #iphone8plus #iphone10 #iphone11 #iphone11pro #iphonelover #wine#winiphone#iphonexr#appleiphone #apple#iphone11promax #iphone12 #iphone12pro #appleproducts #ipadpro #ipad #giveawayapple #freeiphones #newiphone #iphonewinner',
-                                 'likes': 0, 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'jerinnn__', 'comment': 'Iphone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'yovi_n_a', 'comment': 'Me', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nancy_rosas12', 'comment': 'Yo', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'dechevavalya', 'comment': 'Ме', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'sabr_.444', 'comment': '1хочу', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'tzzk_q', 'comment': '[^[]^]', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'tzzk_q', 'comment': 'iPhone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'tzzk_q', 'comment': 'iPhone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'tzzk_q', 'comment': 'iPhone', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'dechevavalya', 'comment': 'Искам айфон', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'dechevavalya', 'comment': 'Аз го искам', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nivid_jain_26', 'comment': 'I want', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'dechevavalya', 'comment': 'Моля мен', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nancy_rosas12', 'comment': '❤️', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'vrsajeviclejla', 'comment': 'IPHONE', 'likes': 1,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'tzzk_q', 'comment': '*^*', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'tzzk_q', 'comment': '¥¥¥', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'tzzk_q', 'comment': ':)', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'tzzk_q', 'comment': '<3', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'allyceh_silva', 'comment': '😍😍', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'm._ike_', 'comment': '😍', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nancy_rosas12', 'comment': '❤️', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nancy_rosas12', 'comment': '❤️', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nancy_rosas12', 'comment': '❤️', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nancy_rosas12', 'comment': '❤️', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nancy_rosas12', 'comment': '❤️', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nancy_rosas12', 'comment': '❤️❤️', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'},
-                                {'username': 'nancy_rosas12', 'comment': '❤️❤️', 'likes': 0,
-                                 'post_username': 'iphone_apple_collect'}]}
-    # endregion
+    if not signed_in:
+        username = 'origins1234'
+        password = 'Instagram@ok'
+        icrawler.driver = InstagramCrawler.set_driver()
+        icrawler.driver.get('https://www.instagram.com/')
+        icrawler.login(username, password)
 
-    # region cleaned comments
-    ok = {'applewatch': ['Time flies.\n\n#applewatch #timeflies #appleproducts #applewatchseries7 #apple',
-                         '🔥🔥🔥 nice photo pro', 'Yesssssss, always. We need to stay focus on our goal.',
-                         'Amazing shot Leo!🔥', 'It sure does🤩 love the shot Leo!',
-                         'Love this shot Leo 🙌🔥 keep it up brother!', '🔥🔥wonderful✨😍', 'Gorgeous shot 🔥🔥🔥',
-                         'wow thats a great shot bro😍🔥', 'Such a minimal shot 💯', 'You take amazing photos 🔥',
-                         'So clean ❤️', '💯💯', 'Beautiful shot! 🔥👌',
-                         'Haven’t used this watch face in a long time. I still think it’s one of the bests though.\n\n#applewatch #series7 #applewatchseries7 #watchfaces #applewatchface',
-                         'Looking like a really hot week stay cool my friend 😂', 'Looks good!', 'How much',
-                         'Another New Years post! I think it’s so fun that apple leaves these fireworks available on your watch for the whole day! Thought I’d be fancy and put on my new gold Milanese loop for New Years. #happynewyear #milaneseloop #goldmilaneseloop #applewatch #applewatchbands #applewatchfans #applewatch7 #applewatchfresh #applewatchlove #applewatchstyle',
-                         'I always enjoy the annual animated notifications like this. And the birthday one! 😂',
-                         'And they used to disappear after tapping…. Now we get to keep them for a day! ;-}',
-                         'Happy New Year great shot', 'I love it! It’s very Apple like 😍'], 'macbookpro': [
-        'I switched to HTML, CSS and JS for my personal page 🤪\n\n🤔 Why did I switch? I switched because it’s easier to create small websites which are responsive with HTML and CSS. At least for me. But for bigger projects, I would definitely choose Flutter Web.\n\n🤓 Do you have your own website?\n\n#macbook #macbookpro #webdeveloper #developer #coder #programmer #website #hustler',
-        'Woah awesome shot and angle 😍😍',
-        'Exactly totally agree with you. Working with html, css and javascript is fun.',
-        'Yeah. Simple one portfolio page, HTML, CSS and JS 😀⚡️⚡️',
-        'Hey, would you please tell me what is the model and brand of your mousepad?', '🔥🔥🔥',
-        'Yuppp....I do. With HTML,CSS and Js. But I dont use Flutter though. I use Java😢', '🔥',
-        'What a wonderful post！Happy holidays🎄❄️🎅',
-        'Exactly it easy we use it most for HTML CSS JavaScript and react for web app',
-        'All the best bro for your new website! I started my tech journey today, do follow my page would mean a world to me!😇',
-        'Yes mine is made of html, CSS and js', "Nope I don't have 👏", 'Wow 😍❤️', 'How about Laravel?',
-        'Yes! Mine is built in Flask :)\nYou can check it here -> rubenoliveira.tech 👨\u200d💻',
-        '🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥',
-        'Website is already become my life. Always visit it for knowing information, Entertainment, Download and much more',
-        'Nɪᴄᴇ...', '😍🔥💯',
-        'What would be considered a bigger project? I’m new to development and trying to immerse myself and learn as much as possible',
-        '@asurushior M',
-        'The Perfect Mobile Creative Setup 🔥\n\n- M1 Max MacBook Pro\n- Sony fx3 + 16-35 2.8 GM\n- @ghostenergy\n- AirPods Pro\n- iPhone 13 Pro Max\n- Lighting SD Reader\n\nI’m more than confident that could get done pretty much any type of creative work on the go with this set up. How about you?? What am I missing? 👇🏻\n\n#apple #tech #macbookpro #homeoffice',
-        '-\n-\n-\n-\n-\n-\n-\n-\n\n#setupinspo #workfromhome #desksetup #sonyfx3 #workhardanywhere #minimalsetups #hustletouch #productivespaces #teamsony #designyourworkspace #setupinspiration #cleansetups #dreamdesks #m1 #m1maxmacbookpro #workspacegoals #workspaceinspo #isetups #workhardanywhere #officeinspo #minimalsetups #airpods #ghostlifestyle #ghostenergy #youtuber #edc',
-        'Need that wallpaper!', 'Portability at its best 🙌', 'Clean AF 🔥', 'Clean!', 'Amazing set up', '😮👏',
-        'All the essentials 🔥 you can easily smash it with this setup man!', 'Ghost all day 💪🏼💪🏼',
-        'Which wallpaper is that?', 'SD card Adapter -why?', 'Clean af', 'This is too clean 💎',
-        'Wonderful setup🔥, where can i find the wallpaper?', 'nice desktop wallpaper, is it default from apple?',
-        '🔥🔥🔥🔥🔥🔥🔥🔥🔥', 'Okay i buying 16 inch again. 14 inch was too small after all.', 'Clean af',
-        'My hart... ❤️🔥', 'Me pasar el fondo de pantalla pli', 'Your gaming pc In the back like 🥺',
-        '😍😍😍😍😍😮😮😮👏👏👏👏👏❤️❤️',
-        'I didn’t now ghost had a drink, that’s cool! So that’s where my eyes went first 😂 amazing setup dude! Clean 🧼',
-        'Very cool setup! 🙌🔥',
-        "Here are some great note-taking 📝 web apps, both free and paid.\n\n➳ Zoho Notebook @zoho☟\nMake notes, create lists, and keep your files organized. Notebook lets you create digital notebooks and note cards in any browser.\n\n➳ Evernote @evernote ☟\nText notes, audio clips, images, PDF documents, scanned handwritten pages, emails, websites, and more can be added. Notes can be sorted and organized easily. \n\n➳ Milanote @milanoteapp☟\nMilanote is an easy-to-use tool that allows you to organize your ideas and projects on visual boards.\n\n➳ OneNote @microsoft365 ☟\nIt is incredibly flexible when it comes to taking notes. You can attach files, images, and audio files; to draw, use the free drawing and highlighting tools.\n\n➳ iCloud Notes @apple☟\nApple notes / iCloud notes. It's possible to add text, images, scan documents, draw or handwrite, create checklists, add tables, and add multiple different things to a single note.\n\n➳ Google Keep @google ☟\nKEEP integrates with the rest of the Google ecosystem so you can save links, notes, and emails, capture what's on your mind quickly, and remind yourself later when you want.\n\nIf you have any web-based note-taking apps that you use, let me know.\n\n❥🏷️ ➻➻➻ Download Free \n❀ December Wallpapers \n❀ Study schedule printables \n🔗 Link in my bio.\n❥ Note: If you are opening the link from a phone, copy and paste the download link into the browser to avoid access denied errors.\n\nFollow @reverelia for study, work, and tech tips, plus get free wallpapers and study templates 😊🤓\U0001f90e💫\n❀\n❀\n❀\n❀\n❀\n❥🏷️❀❀\n#reverelia #desktop #website #web\n#notes #digitalnotetaking #timemanagementtips  #learningathome #study #productivitytools #productivity #productivitytips #workfromanywhere #workremotely #officespace #ios #macbookpro #laptop  #womenintech #workspacegoals #workfromhomelife #learning #selflearning #sidehustle #student #studentlife  #studygram",
-        'THANK YOUUUU 🥺\U0001f90d',
-        "This is great 😍 definitely saving these ☺️ I am using Onenote but maybe I'll try some new ones, thank you 😍❤️",
-        'I love zoho notebook', 'This soooo useful 😍😍 thank you for this ❤️❤️', 'I love this 😍',
-        'fantastic dear❤️❤️', 'Wow! So much of researched knowledge! Thank you for sharing ❤️',
-        "does zoho allow handwritten notes ??? notion is so good but the only thing it lacks is handwritten notes & the fact that you can't customize it :((( but honestly i take my notes through canva because it has a variety of fonts which i love :) it gives an ipad like feel for an android user 😭 so basically a combination of canva + notion + samsung notes & sometimes google keep....for different note taking types",
-        "notion it's my favorite, there's so many functions for free",
-        "Absolutely love Milanote!!! It's especially great for people who like to visualise concepts & projects.",
-        'Lol notion should be the first one', 'Some really cool suggestions! 🙌', 'Love this! These are great apps!🙌',
-        'Amaziiiiiiing!😍', 'OneNote 🙌🏽', 'in absolute LOVE with your account',
-        "Saving this 👍Any apps for linux that support handwriting (I'm using arch btw)",
-        'Thank you so much for sharing this!',
-        "Here are some more suggestions (especially if you're into research based fields):\n•\nObsidian.md: Obsidian is a 'IDE for thought' that works with a folder of Markdown files. It is modelled to allow connections between different notes to generate creative thoughts. It can be moulded to your workflow and has an amazing community of users that make plugins to make it even more compatible with your needs. (Free Forever)\n•\nLogseq : Similar to Obsidian but with a few remarkable distinctions. Most importantly, Logseq is an outliner, i.e. it only allows you to make lists, this is especially beneficial if you want to write something. (Free and Open Source)",
-        'To add, notion is available in Linux as well'], 'appleiphone': [
-        '𝐔𝐍𝐁𝐎𝐗𝐈𝐍𝐆" 𝐋𝐞𝐭 𝐬𝐨𝐦𝐞𝐭𝐡𝐢𝐧𝐠 𝐧𝐞𝐰 𝐬𝐭𝐚𝐫𝐭 𝐢𝐧 𝐭𝐡𝐞 𝐧𝐞𝐰 𝐲𝐞𝐚𝐫🎉🎊. 𝐓𝐡𝐢𝐬 𝐭𝐢𝐦𝐞 𝐭𝐡𝐞 𝐭𝐨𝐩 𝟏𝟎 𝐥𝐮𝐜𝐤𝐲 𝐩𝐞𝐨𝐩𝐥𝐞 𝐚𝐫𝐞 𝐠𝐞𝐭𝐭𝐢𝐧𝐠 𝐢𝐏𝐡𝐨𝐧𝐞 𝟏𝟑 𝐨𝐟 𝐭𝐡𝐞𝐢𝐫 𝐜𝐡𝐨𝐢𝐜𝐞. 𝐒𝐨 𝐖𝐞 𝐬𝐚𝐲 𝐩𝐚𝐫𝐭𝐢𝐜𝐢𝐩𝐚𝐭𝐞 𝐧𝐨𝐰 𝐰𝐢𝐭𝐡𝐨𝐮𝐭 𝐝𝐞𝐥𝐚𝐲😃\n\nHow to participate?\n\n𝟏/𝐆𝐨 𝐭𝐨 𝐭𝐡𝐞 𝐰𝐞𝐛𝐬𝐢𝐭𝐞 𝐂𝐡𝐨𝐨𝐬𝐞 𝐚𝐧 𝐢𝐏𝐡𝐨𝐧𝐞 𝟏𝟑 𝐦𝐨𝐝𝐞𝐥 𝐲𝐨𝐮 𝐰𝐚𝐧𝐭 (⭕ 𝐢𝐦𝐩𝐨𝐫𝐭𝐚𝐧𝐭 ❗ 𝐈𝐬 𝐡𝐢𝐠𝐡𝐥𝐲 𝐫𝐞𝐪𝐮𝐢𝐫𝐞𝐦𝐞𝐧𝐭 𝐜𝐨𝐦𝐩𝐥𝐞𝐭𝐞 𝐭𝐡𝐞 𝐚𝐧𝐲𝐨𝐧𝐞 𝐬𝐢𝐦𝐩𝐥𝐞 𝐬𝐮𝐫𝐯𝐞𝐲.) 𝐖𝐡𝐞𝐧 𝐲𝐨𝐮 𝐝𝐨𝐧𝐞 𝐲𝐨𝐮𝐫 𝐒𝐮𝐫𝐯𝐞𝐲 𝐓𝐡𝐞𝐧 𝐆𝐢𝐯𝐞 𝐦𝐞 𝐚 𝐬𝐜𝐫𝐞𝐞𝐧𝐬𝐡𝐨𝐭 𝐨𝐧 𝐦𝐲 𝐢𝐧𝐛𝐨𝐱 😃\n𝐓𝐡𝐞 𝐥𝐢𝐧𝐤 𝐢𝐧 𝐓𝐡𝐢𝐬 𝐛𝐢𝐨😃\n\n𝟐/𝐅𝐨𝐥𝐥𝐨𝐰 𝐓𝐡𝐢𝐬 𝐀𝐜𝐜𝐨𝐮𝐧𝐭\n𝟑/𝐥𝐢𝐤𝐞\n𝟒/𝐓𝐚𝐠 𝟏𝟓 𝐅𝐫𝐢𝐞𝐧𝐝𝐬\n𝟓/ 𝐖𝐡𝐞𝐧 𝐚𝐥𝐥 𝐭𝐡𝐞 𝐩𝐫𝐨𝐜𝐞𝐬𝐬𝐞𝐬 𝐚𝐫𝐞 𝐜𝐨𝐦𝐩𝐥𝐞𝐭𝐞, 𝐰𝐫𝐢𝐭𝐞 (𝐃𝐎𝐍𝐄) 𝐢𝐧 𝐭𝐡𝐞 𝐜𝐨𝐦𝐦𝐞𝐧𝐭𝐬.\n\n#iphone #pro #apple #promax #appleiphone #ios #plus #applewatch #mini #appleevent #shotoniphone #iphone14 #smartphone #airpods #iphonegiveaway #iphonecase #newiphone #iphonefree #iphonedaily #technology #tech #iphonebonus #iphonex #applewatchseries #caseiphone #oneplus #applenews #iphonese #iphone13',
-        'I need this phone😢🙌', '❤️❤️❤️❤️', 'Done 👍', 'I’m waiting for mine', '❤️❤️❤️', 'Win🔥🔥🔥', 'How much?',
-        'Win', '🙌🙌', '👏👏👏👏🔥❤️',
-        '#apple_iphone\n\nکدوم عضو از این خانواده برای شما کاربرد بیشتری داره؟\n🌨️\nنظرتو برام کامنت کن👇😍\n🌨️\n\nجهت دریافت اطلاع از قیمت ها ، سفارش محصول و هر گونه مشاوره در دایرکت یا قسمت کامنت مراجعه فرمائید.\n🌨️\n\n#Iphone #iphonese #iphone13pro #iphone12 #appleiphone #apple\n#iphone13promax #iphone13mini\n#airpods #applewatch #bmcshop #bmc\n\n#فروشگاه_آنلاین #فروشگاه_اینترنتی #موبایل #فروشگاه #آنلاین_شاپ #موبایل_فروشی #رباط_کریم #پرند #اسلامشهر #بهنام_موبایل #تهران #آیفون #اپل',
-        'Es un sueño 😢😢😮😮😮😍😍😍😍😍😍', 'برای ما هیچکدام ولی برای زینب خانم گوشیش خیلی کاربرد داره😮',
-        'متخصص از عقب میخوام ❤️❤️❤️❤️', 'لطفا دایرکت بدید ممنون', '😍😍', '🧡', '🧡', '🧡', '🧡', '🧡', '🧡', '🧡',
-        '🧡', '🧡', '💎💎💎', '💜💜', '🔥', '😍', '💓', '❤️', '🧡', '💙💙', '😍😍', '✨', '💞', '💙', '💯', '😍', '🍁',
-        '💯', '😍', '💎', '😍',
-        'Hey i really like your content,I post similar stuff on my account,feel free to check it out, and follow me if you like my content',
-        "𝐈'𝐦 𝐥𝐞𝐚𝐯𝐢𝐧𝐠 𝐚 𝐜𝐨𝐦𝐟𝐨𝐫𝐭𝐚𝐛𝐥𝐞 𝐥𝐢𝐟𝐞 𝐧𝐨𝐰 𝐛𝐞𝐜𝐚𝐮𝐬𝐞 𝐈 𝐠𝐨𝐭 𝐢𝐧𝐯𝐨𝐥𝐯𝐞𝐝 𝐢𝐧 𝐜𝐫𝐲𝐩𝐭𝐨 𝐚𝐧𝐝 𝐟𝐨𝐫𝐞𝐱 𝐭𝐡𝐞 𝐦𝐨𝐬𝐭 𝐥𝐞𝐠𝐢𝐭 𝐭𝐫𝐚𝐝𝐞𝐫 𝐨𝐧 𝐭𝐡𝐞 𝐢𝐧𝐭𝐞𝐫𝐧𝐞𝐭 𝐢𝐬 𝐡𝐞𝐥𝐩𝐢𝐧𝐠 𝐦𝐞 𝐞𝐚𝐫𝐧 $𝟏𝟏𝐤 𝐰𝐞𝐞𝐤𝐥𝐲 𝐢𝐧 𝐬𝐨 𝐠𝐫𝐚𝐭𝐞𝐟𝐮𝐥 @pro_fx_traderalex",
-        '𝐠𝐢𝐯𝐢𝐧𝐠 𝐚𝐰𝐚𝐲 𝐛𝐫𝐚𝐧𝐝 𝐧𝐞𝐰 𝐢𝐩𝐡𝐨𝐧𝐞 📲\n𝐚𝐥𝐥 𝟐𝟓𝟔 𝐠𝐛☢️\n𝙈𝙪𝙨𝙩 𝙛𝙤𝙡𝙡𝙤𝙬 𝘼𝙇𝙇 𝙨𝙩𝙚𝙥𝙨 𝙗𝙚𝙡𝙤𝙬 𝙩𝙤 𝙬𝙞𝙣!\n🎁🎁\n\n✅ʟɪᴋᴇ ᴏᴜʀ ᴘᴏꜱᴛ👍\n✅Follow Must\n✅𝘾𝙤𝙢𝙢𝙚𝙣𝙩 𝙗𝙚𝙡𝙤𝙬 𝙖𝙨 𝙢𝙖𝙣𝙮 𝙩𝙞𝙢𝙚𝙨 𝙖𝙨 𝙮𝙤𝙪 𝙘𝙖𝙣! ❶ 𝘾𝙤𝙢𝙢𝙚𝙣𝙩 = １ 𝙚𝙣𝙩𝙧𝙮\n✅𝐏𝐥𝐞𝐚𝐬𝐞 𝐜𝐡𝐞𝐜𝐤 𝐦𝐲 𝐛𝐢𝐨 𝐥𝐢𝐧𝐤 𝐚𝐧𝐝 𝐜𝐥𝐚𝐢𝐦 𝐲𝐨𝐮𝐫 "𝐈𝐏𝐇𝐎𝐍𝐄"\n\n#iphone12 #iphonexs #iphonex #caseiphone #giveawayiphone #iphone6 #iphone6plus #iphone13#iphone13pro #iphone8 #iphone8plus #iphone10 #iphone11 #iphone11pro #iphonelover #wine#winiphone#iphonexr#appleiphone #apple#iphone11promax #iphone12 #iphone12pro #appleproducts #ipadpro #ipad #giveawayapple #freeiphones #newiphone #iphonewinner',
-        'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone',
-        'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Iphone', 'Me', 'Yo', 'Ме', '1хочу',
-        '[^[]^]', 'iPhone', 'iPhone', 'iPhone', 'Искам айфон', 'Аз го искам', 'I want', 'Моля мен', '❤️', 'IPHONE',
-        'IPHONE', 'IPHONE', 'IPHONE', 'IPHONE', 'IPHONE', 'IPHONE', 'IPHONE', 'IPHONE', 'IPHONE', '*^*', '¥¥¥', ':)',
-        '<3', '😍😍', '😍', '❤️', '❤️', '❤️', '❤️', '❤️', '❤️❤️', '❤️❤️']}
+    else:
+        icrawler.driver = InstagramCrawler.signed_in_driver()
 
-    # endregion
+    F = FastText(icrawler)
 
-    # region more clean
-    ok1 = {'applewatch': ['time flies.', 'nice photo pro', 'yesssssss always.we need to stay focus on our goal.',
-                          'amazing shot leo!', 'it sure does love the shot leo!',
-                          'love this shot leo keep it up brother!', 'wonderful', 'gorgeous shot',
-                          'wow thats a great shot bro', 'such a minimal shot', 'you take amazing photos', 'so clean',
-                          'beautiful shot!',
-                          'havent used this watch face in a long time.i still think its one of the bests though.',
-                          'looking like a really hot week stay cool my friend', 'looks good!', 'how much',
-                          'another new years post! i think its so fun that apple leaves these fireworks available on your watch for the whole day! thought id be fancy and put on my new gold milanese loop for new years.',
-                          'i always enjoy the annual animated notifications like this.and the birthday one!',
-                          'and they used to disappear after tapping.now we get to keep them for a day! ;}',
-                          'happy new year great shot', 'i love it! its very apple like'], 'macbookpro': [
-        'i switched to html css and js for my personal page why did i switch? i switched because its easier to create small websites which are responsive with html and css.at least for me.but for bigger projects i would definitely choose flutter web.do you have your own website? ',
-        'woah awesome shot and angle', 'exactly totally agree with you.working with html css and javascript is fun.',
-        'yeah.simple one portfolio page html css and js',
-        'hey would you please tell me what is the model and brand of your mousepad?',
-        'yuppp....i do.with htmlcss and js.but i dont use flutter though.i use java',
-        'what a wonderful posthappy holidays',
-        'exactly it easy we use it most for html css javascript and react for web app',
-        'all the best bro for your new website! i started my tech journey today do follow my page would mean a world to me!',
-        'yes mine is made of html css and js', "nope i don't have", 'how about laravel?',
-        'yes! mine is built in flask : you can check it here rubenoliveira.tech',
-        'website is already become my life.always visit it for knowing information entertainment download and much more',
-        'n...',
-        'what would be considered a bigger project? im new to development and trying to immerse myself and learn as much as possible',
-        'the perfect mobile creative setup m1 max macbook pro sony fx3 1635 2.8 gm airpods pro iphone 13 pro max lighting sd reader im more than confident that could get done pretty much any type of creative work on the go with this set up.how about you?? what am i missing? ',
-        'need that wallpaper!', 'portability at its best', 'clean af', 'clean!', 'amazing set up',
-        'all the essentials you can easily smash it with this setup man!', 'ghost all day', 'which wallpaper is that?',
-        'sd card adapter why?', 'this is too clean', 'wonderful setup where can i find the wallpaper?',
-        'nice desktop wallpaper is it default from apple?',
-        'okay i buying 16 inch again.14 inch was too small after all.', 'my hart...',
-        'me pasar el fondo de pantalla pli', 'your gaming pc in the back like',
-        'i didnt now ghost had a drink thats cool! so thats where my eyes went first amazing setup dude! clean',
-        'very cool setup!',
-        "here are some great notetaking web apps both free and paid.zoho notebook make notes create lists and keep your files organized.notebook lets you create digital notebooks and note cards in any browser.evernote text notes audio clips images pdf documents scanned handwritten pages emails websites and more can be added.notes can be sorted and organized easily.milanote milanote is an easytouse tool that allows you to organize your ideas and projects on visual boards.onenote it is incredibly flexible when it comes to taking notes.you can attach files images and audio files; to draw use the free drawing and highlighting tools.icloud notes apple notes icloud notes.it's possible to add text images scan documents draw or handwrite create checklists add tables and add multiple different things to a single note.google keep keep integrates with the rest of the google ecosystem so you can save links notes and emails capture what's on your mind quickly and remind yourself later when you want.if you have any webbased notetaking apps that you use let me know.download free december wallpapers study schedule printables link in my bio.note: if you are opening the link from a phone copy and paste the download link into the browser to avoid access denied errors.follow for study work and tech tips plus get free wallpapers and study templates ",
-        'thank youuuu',
-        "this is great definitely saving these i am using onenote but maybe i'll try some new ones thank you",
-        'i love zoho notebook', 'this soooo useful thank you for this', 'i love this', 'fantastic dear',
-        'wow! so much of researched knowledge! thank you for sharing',
-        "does zoho allow handwritten notes ??? notion is so good but the only thing it lacks is handwritten notes & the fact that you can't customize it : but honestly i take my notes through canva because it has a variety of fonts which i love : it gives an ipad like feel for an android user so basically a combination of canva notion samsung notes & sometimes google keep....for different note taking types",
-        "notion it's my favorite there's so many functions for free",
-        "absolutely love milanote!!! it's especially great for people who like to visualise concepts & projects.",
-        'lol notion should be the first one', 'some really cool suggestions!', 'love this! these are great apps!',
-        'amaziiiiiiing!', 'onenote', 'in absolute love with your account',
-        "saving this any apps for linux that support handwriting i'm using arch btw",
-        'thank you so much for sharing this!',
-        "here are some more suggestions especially if you're into research based fields: obsidian.md: obsidian is a 'ide for thought' that works with a folder of markdown files.it is modelled to allow connections between different notes to generate creative thoughts.it can be moulded to your workflow and has an amazing community of users that make plugins to make it even more compatible with your needs.free forever logseq : similar to obsidian but with a few remarkable distinctions.most importantly logseq is an outliner i.e.it only allows you to make lists this is especially beneficial if you want to write something.free and open source",
-        'to add notion is available in linux as well'],
-           'appleiphone': ['..how to participate?..', 'i need this phone', 'done', 'im waiting for mine', 'how much?',
-                           'es un sueo',
-                           'hey i really like your contenti post similar stuff on my accountfeel free to check it out and follow me if you like my content',
-                           ' ! follow must ! ', 'iphone', 'i want']}
+    comments = F.comments_getter(["applewatch", "macbookpro", "appleiphone"], 10)
+    F.comments.update(comments)
 
-    # endregion
+    cleaned_comments = FastText.clean_comments(comments)
+    F.cleaned_comments.update(cleaned_comments)
 
-    F.cleaning(comments)
+    F.labeled_comments = FastText.comments_labeling(F.cleaned_comments)
+    F.save_comments()
+    FastText.comments_train_preparing(F.labeled_comments)
