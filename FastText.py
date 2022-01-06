@@ -19,13 +19,11 @@ class FastText:
         for hashtag in tashtags:
             comments_data = []
 
-            posts = self.icrawler.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/", number_of_posts)
+            posts = self.icrawler.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/",
+                                                             number_of_posts)
             print(f"posts found for {hashtag}")
-
-            for post in posts:
-                print(f"crawl {post}")
-                _, comments_data = self.icrawler.crawl_comment(post)
-                print("length of comments were found: ", len(comments_data))
+            _, comments_data = self.icrawler.crawl_comment(posts)
+            print("length of comments were found: ", len(comments_data))
 
             comments[hashtag] = comments_data
 
