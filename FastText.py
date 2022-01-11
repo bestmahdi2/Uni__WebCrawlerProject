@@ -8,46 +8,55 @@ import fasttext
 class FastText:
     def __init__(self, icrawler: InstagramCrawler):
         super().__init__()
-        # model = fasttext.train_supervised(input="cooking.train", lr=1.0, epoch=25, wordNgrams=2)
         self.comments = {}
         self.cleaned_comments = {}
         self.labeled_comments = {}
         self.icrawler = icrawler
+        self.model = None
+        self.path_ft_files = "FasttextFiles/"
 
-    def comments_getter(self, tashtags: list, number_of_posts: int) -> dict:
+    def comments_getter(self, tashtags: list, number_of_posts: int):
         comments = {}
+        print("$ Found comments > ", end="")
         for hashtag in tashtags:
-            comments_data = []
-
             posts = self.icrawler.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/",
                                                              number_of_posts)
-            print(f"posts found for {hashtag}")
+
             _, comments_data = self.icrawler.crawl_comment(posts)
-            print("length of comments were found: ", len(comments_data))
+            print(f"{hashtag}: {len(comments_data)}", end="")
 
             comments[hashtag] = comments_data
 
-        return comments
+        print()
+        self.icrawler.driver.close()
 
-    @staticmethod
-    def comments_labeling(cleaned_comments: dict) -> dict:
+        self.comments.update(comments)
+
+    def fasttext(self):
+        labeled_data = self.load_labeled()
+
+        self.model = fasttext.train_supervised(input=labeled_data["train"], lr=1.0, epoch=25, wordNgrams=2)
+        self.model.save_model(self.path_ft_files + "model_hashtags.bin")
+        print(self.model.test(labeled_data["valid"]))
+
+    def comments_labeling(self):
         labeled_comments = {}
         deleted_comments = {}
 
-        print(", ".join([f'{key}: {len(cleaned_comments[key])} comments' for key in cleaned_comments.keys()]))
+        print("$ Cleaned comments > " + ", ".join([f'{key}: {len(self.cleaned_comments[key])}' for key in self.cleaned_comments.keys()]))
 
-        print("Enter 'g'/'b'/'i' for good/bad/inactive and enter nothing for deleting this comment.")
+        print("\n% Enter 'g'/'b'/'i' for good/bad/inactive and enter nothing for deleting this comment.")
 
-        for key in cleaned_comments.keys():
+        for key in self.cleaned_comments.keys():
             labeled_comments[key] = {'good': [], 'bad': [], 'inactive': []}
             deleted_comments[key] = []
 
-            length = len(cleaned_comments[key])
+            length = len(self.cleaned_comments[key])
 
-            print('\nhashtag:', key)
+            print('# Hashtag:', key)
 
             x = 1
-            for comment in cleaned_comments[key]:
+            for comment in self.cleaned_comments[key]:
                 inputer = input(f'{x}/{length}) {comment} > ')
 
                 if inputer.lower() == 'g':
@@ -64,20 +73,49 @@ class FastText:
 
                 x += 1
 
-        print(labeled_comments)
+        print("\nLabeled comments: ", labeled_comments)
         print("--------------")
-        print(deleted_comments)
+        print("Deleted comments: ", deleted_comments)
 
-        return labeled_comments
+        self.labeled_comments = labeled_comments
 
-    @staticmethod
-    def comments_train_preparing(labeled_comments: dict):
+    def comments_train_preparing(self, labeled_comments: dict):
+        temp_comments_keeper = []
+
         for key in labeled_comments.keys():
-            temp_comments_keeper = []
             for label in labeled_comments[key].keys():
                 temp_comments_keeper += [f"__label__{label} {comment}" for comment in labeled_comments[key][label]]
 
-            FastText.save_train(temp_comments_keeper, key)
+            self.save_labeled(temp_comments_keeper)
+
+    def save_comments(self):
+        with open(self.path_ft_files + 'saved_comments.pkl', 'ab') as f:
+            dump(self.labeled_comments, f)
+
+    def load_comments(self):
+        with open(self.path_ft_files + 'saved_comments.pkl', 'rb') as f:
+            self.labeled_comments = load(f)
+
+    def save_labeled(self, labeled_train: list):
+        """save each key"""
+
+        index_percent = int(len(labeled_train) * 0.8)
+
+        with open(self.path_ft_files + f'saved.train', 'a') as f:
+            f.write("\n".join(labeled_train[:index_percent]))
+
+        with open(self.path_ft_files + f'saved.valid', 'a') as f:
+            f.write("\n".join(labeled_train[index_percent:]))
+
+    def load_labeled(self) -> dict:
+        """load all keys"""
+
+        labeled_data = {}
+
+        labeled_data['train'] = self.path_ft_files + f'saved.train'
+        labeled_data['valid'] = self.path_ft_files + f'saved.valid'
+
+        return labeled_data
 
     @staticmethod
     def clean_comments(comments: dict) -> dict:
@@ -153,32 +191,6 @@ class FastText:
 
         return text
 
-    def save_comments(self):
-        with open('saved_comments.pkl', 'wb') as f:
-            dump(self.labeled_comments, f)
-
-    def load_comments(self):
-        with open('saved_comments.pkl', 'rb') as f:
-            self.labeled_comments = load(f)
-
-    @staticmethod
-    def save_train(labeled_train: list, key: str):
-        """save each key"""
-
-        with open(f'saved_train_{key}.txt', 'w') as f:
-            f.write("\n".join(labeled_train))
-
-    @staticmethod
-    def load_train(keys: list) -> dict:
-        """load all keys"""
-        labeled_train = {}
-
-        for key in keys:
-            with open(f'saved_train_{key}.txt', 'r') as f:
-                labeled_train[key] = f.readlines()
-
-        return labeled_train
-
 
 if __name__ == '__main__':
     signed_in = True
@@ -196,12 +208,10 @@ if __name__ == '__main__':
 
     F = FastText(icrawler)
 
-    comments = F.comments_getter(["applewatch", "macbookpro", "appleiphone"], 10)
-    F.comments.update(comments)
+    ##############
 
-    cleaned_comments = FastText.clean_comments(comments)
-    F.cleaned_comments.update(cleaned_comments)
-
-    F.labeled_comments = FastText.comments_labeling(F.cleaned_comments)
+    F.comments_getter(["applewatch", "macbookpro", "appleiphone"], 10)
+    F.cleaned_comments = FastText.clean_comments(F.comments)
+    F.comments_labeling()
     F.save_comments()
-    FastText.comments_train_preparing(F.labeled_comments)
+    F.comments_train_preparing(F.labeled_comments)
