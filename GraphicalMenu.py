@@ -1,7 +1,30 @@
-import tkinter as tk
-from tkinter import ttk, HORIZONTAL, LEFT, VERTICAL, simpledialog, filedialog
-import tkinter.font as tk_font
+import selenium
+from enum import Enum
+from threading import Thread
+from FastText import FastText
 from functools import partial
+# import tkinter.font as tk_font
+from tkinter.font import Font
+import matplotlib.pyplot as plt
+from os import getcwd, sep, listdir, path as path_
+from selenium.common.exceptions import TimeoutException
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from tkinter import ttk, HORIZONTAL, VERTICAL, simpledialog, filedialog, Button, Label, Entry, Checkbutton, Toplevel, \
+    BOTH, LEFT, Tk, BooleanVar
+
+from InstagramCrawler import InstagramCrawler
+
+
+class State(Enum):
+    """
+       Enum class for State,
+       for limiting user from clicking on buttons > order clicking
+    """
+
+    LOGIN = 0
+    ACCOUNT = 1
+    POST = 2
+    SAVE = 3
 
 
 class GraphicalMenu:
@@ -9,70 +32,77 @@ class GraphicalMenu:
         This is a class for gui use.
 
         Arguments:
-            root (tk): root frame of application
+            root (tkinter.Tk): root frame of application
     """
 
     def __init__(self, root):
-        self.stay_loggedin = True
-        self.show_browser = True
+        self.state = State.LOGIN
+        self.instagram = InstagramCrawler()
+        self.F = FastText()
+
+        self.use_cookies = BooleanVar()
+        self.show_browser = BooleanVar()
 
         self.initialize_labels(root)
         self.initialize_buttons(root)
         self.initialize_entries(root)
         self.initialize_checkboxes(root)
 
-        self.combobox = ttk.Combobox(root, values=('value1', 'value2', 'value3'))
+        self.combobox = ttk.Combobox(root)
         self.combobox.place(x=180, y=250, width=270, height=30)
 
-        progress_bar = ttk.Progressbar(root, style="red.Horizontal.TProgressbar", orient="horizontal", length=600,
-                                       mode="determinate", maximum=100, value=0)
-        progress_bar.place(x=105, y=550, width=390, height=30)
+        self.progress_bar = ttk.Progressbar(root, style="red.Horizontal.TProgressbar", orient="horizontal", length=600,
+                                            mode="determinate", maximum=100, value=0)
+        self.progress_bar.place(x=105, y=550, width=390, height=30)
 
         self.initialize_seprator(root)
 
     def initialize_labels(self, root):
         # initialize labels, same properties were set to variables
-        font_bold = tk_font.Font(family='Calibri bold', size=11)
-        font = tk_font.Font(family='Calibri', size=11)
+        font_bold = Font(family='Calibri bold', size=11)
+        font = Font(family='Calibri', size=11)
         bg = '#F0EAD6'
         fg = "#333333"
         height = 30
 
-        self.Label(root, bg, '#CC397B', tk_font.Font(family='Calibri bold', size=23), "Instagram Crawler",
+        self.Label(root, bg, '#CC397B', Font(family='Calibri bold', size=23), "Instagram Crawler",
                    {'x': 10, 'y': 20, 'w': 680, 'h': 45}, 'center')
-        self.Label(root, bg, fg, tk_font.Font(family='Calibri bold', size=13), "Login",
+        self.Label(root, bg, fg, Font(family='Calibri bold', size=13), "Login",
                    {'x': 10, 'y': 70, 'w': 50, 'h': height})
         self.Label(root, bg, fg, font, "Username:", {'x': 10, 'y': 110, 'w': 80, 'h': height})
         self.Label(root, bg, fg, font, "Password:", {'x': 290, 'y': 110, 'w': 80, 'h': height})
         self.Label(root, bg, fg, font_bold, "Accounts", {'x': 10, 'y': 170, 'w': 73, 'h': height})
         self.Label(root, bg, fg, font, "Accounts Number (n):", {'x': 10, 'y': 210, 'w': 150, 'h': height})
+        self.Label(root, bg, fg, font, "Hashtag:", {'x': 310, 'y': 210, 'w': 80, 'h': height})
         self.Label(root, bg, fg, font, "Founded Accounts:", {'x': 10, 'y': 250, 'w': 135, 'h': height})
         self.Label(root, bg, fg, font_bold, "Posts", {'x': 10, 'y': 310, 'w': 48, 'h': height})
         self.Label(root, bg, fg, font, "Posts Number (m):", {'x': 10, 'y': 350, 'w': 130, 'h': height})
         self.Label(root, bg, fg, font_bold, "Save Location", {'x': 10, 'y': 410, 'w': 95, 'h': height})
         self.Label(root, bg, fg, font_bold, "Progress", {'x': 10, 'y': 510, 'w': 95, 'h': height})
-        self.label_passed = self.Label(root, bg, fg, tk_font.Font(family='Calibri', size=10),
+        self.label_passed = self.Label(root, bg, fg, Font(family='Calibri', size=10),
                                        "100/300, 10:02", {'x': 10, 'y': 550, 'w': 100, 'h': height})
-        self.label_left = self.Label(root, bg, fg, tk_font.Font(family='Calibri', size=10),
+        self.label_left = self.Label(root, bg, fg, Font(family='Calibri', size=10),
                                      "10:02", {'x': 500, 'y': 550, 'w': 167, 'h': height})
-        self.label_error_login = self.Label(root, bg, "#FF0038", tk_font.Font(family='Calibri', size=10),
-                                            "label_error_login", {'x': 10, 'y': 140, 'w': 520, 'h': height})
-        self.label_error_accounts = self.Label(root, bg, "#FF0038", tk_font.Font(family='Calibri', size=10),
-                                               "label_error_accounts", {'x': 10, 'y': 280, 'w': 520, 'h': height})
-        self.label_error_posts = self.Label(root, bg, "#FF0038", tk_font.Font(family='Calibri', size=10),
-                                            "label_error_posts", {'x': 10, 'y': 380, 'w': 520, 'h': height})
-        self.label_error_loc = self.Label(root, bg, "#FF0038", tk_font.Font(family='Calibri', size=10),
-                                          "label_error_posts", {'x': 10, 'y': 480, 'w': 520, 'h': height})
+        self.label_error_login = self.Label(root, bg, "#FF0038", Font(family='Calibri', size=10),
+                                            "", {'x': 10, 'y': 140, 'w': 520, 'h': height})
+        self.label_error_accounts = self.Label(root, bg, "#FF0038", Font(family='Calibri', size=10),
+                                               "", {'x': 10, 'y': 280, 'w': 520, 'h': height})
+        self.label_error_posts = self.Label(root, bg, "#FF0038", Font(family='Calibri', size=10),
+                                            "", {'x': 10, 'y': 380, 'w': 520, 'h': height})
+        self.label_error_loc = self.Label(root, bg, "#FF0038", Font(family='Calibri', size=10),
+                                          "", {'x': 10, 'y': 480, 'w': 520, 'h': height})
+        self.label_notif = self.Label(root, bg, "#20B2AA", Font(family='Calibri', size=11),
+                                      "", {'x': 570, 'y': 350, 'w': 110, 'h': 200}, 'n', wraplength=110)
 
     def initialize_buttons(self, root):
         # initialize buttons, same properties were set to variables
         bg = "#CC397B"
         fg = "#ffffff"
-        font = tk_font.Font(family='Calibri bold', size=11)
+        font = Font(family='Calibri bold', size=11)
         width = 110
         height = 30
 
-        self.Button(root, bg, fg, font, "Login", {'x': 570, 'y': 110, 'w': width, 'h': height},
+        self.Button(root, bg, fg, font, "Login/Prepare", {'x': 570, 'y': 110, 'w': width, 'h': height},
                     partial(self.commander, "Login"))
         self.Button(root, bg, fg, font, "Find Accounts", {'x': 570, 'y': 150, 'w': width, 'h': height},
                     partial(self.commander, "Find Accounts"))
@@ -83,31 +113,45 @@ class GraphicalMenu:
         self.Button(root, bg, fg, font, "➕", {'x': 460, 'y': 250, 'w': 30, 'h': height}, self.adder)
         self.Button(root, bg, fg, font, "➖", {'x': 500, 'y': 250, 'w': 30, 'h': height}, self.remover)
         self.Button(root, bg, fg, font, "Open", {'x': 460, 'y': 450, 'w': 70, 'h': height}, self.open_directory)
+        self.Button(root, bg, fg, font, "Special", {'x': 570, 'y': 550, 'w': width, 'h': height},
+                    partial(self.open_special, root))
 
     def initialize_entries(self, root):
         # initialize entries, same properties were set to variables
         fg = "#333333"
-        font = tk_font.Font(family='Calibri bold', size=10)
+        font = Font(family='Calibri bold', size=10)
         height = 30
 
         self.entry_username = self.Entry(root, fg, font, {'x': 100, 'y': 110, 'w': 150, 'h': height})
         self.entry_password = self.Entry(root, fg, font, {'x': 380, 'y': 110, 'w': 150, 'h': height}, show="*")
         self.entry_account_number = self.Entry(root, fg, font, {'x': 180, 'y': 210, 'w': 110, 'h': height}, "center")
+        self.entry_hashtag = self.Entry(root, fg, font, {'x': 380, 'y': 210, 'w': 150, 'h': height})
         self.entry_post_number = self.Entry(root, fg, font, {'x': 180, 'y': 350, 'w': 110, 'h': height}, "center")
         self.entry_save_loc = self.Entry(root, fg, font, {'x': 15, 'y': 450, 'w': 435, 'h': height})
+
+        self.entry_save_loc.delete(0, "end")
+        self.entry_save_loc.insert(0, getcwd())
+
+        self.entry_account_number.delete(0, "end")
+        self.entry_account_number.insert(0, "5")
+
+        self.entry_post_number.delete(0, "end")
+        self.entry_post_number.insert(0, "5")
 
     def initialize_checkboxes(self, root):
         # initialize checkbox, same properties were set to variables
         bg = '#F0EAD6'
         fg = "#333333"
-        font = tk_font.Font(family='Calibri bold', size=10)
+        font = Font(family='Calibri bold', size=10)
         width = 110
         height = 30
 
-        self.Checkbutton(root, bg, fg, font, "Show Browser", {'x': 570, 'y': 280, 'w': width, 'h': height},
-                         partial(self.commander, "Show Browser"))
-        self.Checkbutton(root, bg, fg, font, "Stay Logged In", {'x': 570, 'y': 310, 'w': width, 'h': height},
-                         partial(self.commander, "Stay Logged In"))
+        self.checkbox_browser = self.Checkbutton(root, bg, fg, font, "Show Browser",
+                                                 {'x': 570, 'y': 280, 'w': width, 'h': height},
+                                                 partial(self.commander, "Show Browser"), self.show_browser)
+        self.checkbox_cookies = self.Checkbutton(root, bg, fg, font, "Use Cookies",
+                                                 {'x': 564, 'y': 310, 'w': width, 'h': height},
+                                                 partial(self.commander, "Use Cookies"), self.use_cookies)
 
     def initialize_seprator(self, root):
         ttk.Separator(root, orient=HORIZONTAL).place(x=60, y=85, w=470, h=1)
@@ -117,8 +161,8 @@ class GraphicalMenu:
         ttk.Separator(root, orient=HORIZONTAL).place(x=70, y=525, w=460, h=1)
         ttk.Separator(root, orient=VERTICAL).place(x=550, y=85, w=1, h=500)
 
-    def Button(self, root, bg: str, fg: str, font: tk_font.Font, text: str, place: dict, command,
-               justify: str = "center", relief: str = "flat") -> tk.Button:
+    def Button(self, root, bg: str, fg: str, font: Font, text: str, place: dict, command,
+               justify: str = "center", relief: str = "flat") -> Button:
         """
         The function to create and return a new TK button
 
@@ -126,7 +170,7 @@ class GraphicalMenu:
             root : root frame of application
             bg (str): background color
             fg (str): foreground color
-            font (tk_font.Font): font of the button's text
+            font (Font): font of the button's text
             text (str): text of the button
             place (dict): position of the button
             command : the function with its parameter
@@ -134,10 +178,10 @@ class GraphicalMenu:
             relief (str): relief of the button
 
         Returns:
-            temp_button: A tk.Button object of button created with given information
+            temp_button: A Button object of button created with given information
         """
 
-        temp_button = tk.Button(root, relief=relief, cursor="hand2")
+        temp_button = Button(root, relief=relief, cursor="hand2")
         temp_button["bg"] = bg
         temp_button["font"] = font
         temp_button["fg"] = fg
@@ -148,8 +192,8 @@ class GraphicalMenu:
 
         return temp_button
 
-    def Label(self, root, bg: str, fg: str, font: tk_font.Font, text: str, place: dict,
-              anchor: str = 'w') -> tk.Label:
+    def Label(self, root, bg: str, fg: str, font: Font, text: str, place: dict,
+              anchor: str = 'w', wraplength: int = 0) -> Label:
         """
         The function to create and return a new TK label
 
@@ -157,42 +201,45 @@ class GraphicalMenu:
             root : root frame of application
             bg (str): background color
             fg (str): foreground color
-            font (tk_font.Font): font of the label's text
+            font (Font): font of the label's text
             text (str): text of the label
             place (dict): position of the label
-            justify (str): label text justify
+            anchor (str): label text justify
+            wraplength (int): label text justify
 
         Returns:
-            temp_label: A tk.Label object of label created with given information
+            temp_label: A Label object of label created with given information
         """
 
-        temp_label = tk.Label(root, anchor=anchor)
+        temp_label = Label(root, anchor=anchor)
         temp_label["bg"] = bg
         temp_label["font"] = font
         temp_label["fg"] = fg
         temp_label["text"] = text
+        if wraplength:
+            temp_label["wraplength"] = wraplength
         temp_label.place(x=place['x'], y=place['y'], width=place['w'], height=place['h'])
 
         return temp_label
 
-    def Entry(self, root, fg: str, font: tk_font.Font, place: dict, justify: str = "left",
-              borderwidth="1px", show="") -> tk.Entry:
+    def Entry(self, root, fg: str, font: Font, place: dict, justify: str = "left",
+              borderwidth="1px", show="") -> Entry:
         """
         The function to create and return a new TK entry
 
         Parameters:
             root : root frame of application
             fg (str): foreground color
-            font (tk_font.Font): font of the entry's text
+            font (Font): font of the entry's text
             place (dict): position of the entry
             justify (str): entry text justify
             borderwidth (str): entry border width
 
         Returns:
-            temp_entry: A tk.Entry object of entry created with given information
+            temp_entry: A Entry object of entry created with given information
         """
 
-        temp_entry = tk.Entry(root)
+        temp_entry = Entry(root)
         temp_entry["font"] = font
         temp_entry["fg"] = fg
         temp_entry["justify"] = justify
@@ -203,8 +250,8 @@ class GraphicalMenu:
 
         return temp_entry
 
-    def Checkbutton(self, root, bg, fg: str, font: tk_font.Font, text: str, place: dict, command,
-                    justify: str = "center") -> tk.Checkbutton:
+    def Checkbutton(self, root, bg, fg: str, font: Font, text: str, place: dict, command, variable,
+                    justify: str = "center") -> Checkbutton:
         """
         The function to create and return a new TK checkbox
 
@@ -212,18 +259,18 @@ class GraphicalMenu:
             root : root frame of application
             bg (str): background color
             fg (str): foreground color
-            font (tk_font.Font): font of the checkbox's text
+            font (Font): font of the checkbox's text
             text (str): text of the checkbox
             place (dict): position of the checkbox
-            command : the function with its parameter
+            command : the command to control checkbox
             justify (str): checkbox text justify
 
 
         Returns:
-            temp_checkbox: A tk.Checkbutton object of checkbox created with given information
+            temp_checkbox: A Checkbutton object of checkbox created with given information
         """
 
-        temp_checkbox = tk.Checkbutton(root, cursor="hand2")
+        temp_checkbox = Checkbutton(root, cursor="hand2")
         temp_checkbox["bg"] = bg
         temp_checkbox["font"] = font
         temp_checkbox["fg"] = fg
@@ -232,6 +279,7 @@ class GraphicalMenu:
         temp_checkbox["offvalue"] = "0"
         temp_checkbox["onvalue"] = "1"
         temp_checkbox["command"] = command
+        temp_checkbox["variable"] = variable
         temp_checkbox.place(x=place['x'], y=place['y'], width=place['w'], height=place['h'])
 
         return temp_checkbox
@@ -243,10 +291,142 @@ class GraphicalMenu:
         Parameters:
             command (str): The command user clicked on
         """
-        pass
-        # self.lineEdit.delete(0, "end")
-        # self.message_show_result["text"] = ""
-        # self.label_mode["text"] = command
+
+        self.clean_errors()
+        self.label_notif['text'] = "Wait please !"
+
+        if command == "Login":
+            self.clean_errors()
+
+            def login(self):
+                # logged in before
+                if "UserData" in listdir("."):
+                    self.instagram.driver = InstagramCrawler.set_driver(True, self.show_browser.get())
+                    self.label_notif['text'] = "Logged in successfully !"
+                    self.state = State.ACCOUNT
+
+                # not logged in before and empty username or password
+                elif not self.entry_username.get() or not self.entry_password.get():
+                    self.label_notif['text'] = ""
+                    if not self.entry_username.get():
+                        self.label_error_login['text'] = "Username is empty !"
+
+                    elif not self.entry_password.get():
+                        self.label_error_login['text'] = "Password is empty !"
+
+                # not logged in before and gave username or password
+                elif self.entry_username.get() and self.entry_password.get():
+                    username = self.entry_username.get()
+                    password = self.entry_password.get()
+                    self.instagram.driver = InstagramCrawler.set_driver(self.use_cookies.get(), self.show_browser.get())
+
+                    try:
+                        self.instagram.driver.get('https://www.instagram.com/')
+
+                    except selenium.common.exceptions.WebDriverException:
+                        self.label_notif['text'] = ""
+                        self.label_error_login['text'] = "You're not connected to Internet !"
+
+                    try:
+                        self.instagram.login(username, password)
+                        self.label_notif['text'] = "Logged in successfully !"
+                        self.state = State.ACCOUNT
+
+                    except TimeoutException:
+                        self.label_notif['text'] = ""
+                        self.label_error_login['text'] = "Weak internet connection or wrong username/password !"
+
+            t = Thread(target=login, args=(self,))
+            t.start()
+
+        elif command == "Find Accounts":
+            self.clean_errors()
+
+            if self.state.value > 0:
+                self.entry_hashtag.get()
+
+                if self.entry_hashtag.get():
+                    def find_acounts(self):
+                        try:
+                            hashtag = self.entry_hashtag.get()
+                            hashtag = hashtag[1:] if hashtag.startswith("#") else hashtag
+                            self.instagram.accounts_url, self.instagram.accounts_name = self.instagram.find_accounts_url_contain_hashtag(
+                                self.entry_hashtag.get(), int(self.entry_account_number.get()), self.progress_bar)
+
+                            self.combobox['values'] = tuple(self.instagram.accounts_name)
+                            self.combobox.current(len(self.combobox['values']) - 1 if self.combobox['values'] else 0)
+
+                            self.label_notif['text'] = f"{len(self.combobox['values'])} accounts were found !"
+                            self.state = State.POST
+
+                        except:
+                            self.label_error_accounts['text'] = "Weak internet connection !"
+
+                    t = Thread(target=find_acounts, args=(self,))
+                    t.start()
+
+                else:
+                    self.label_error_accounts['text'] = "Enter the hashtag you want to search !"
+
+            else:
+                self.label_error_login['text'] = "You haven't login yet !"
+
+        elif command == "Find Posts":
+            self.clean_errors()
+
+            if self.state.value > 1:
+                def find_posts(self):
+                    posts_to_be_crawled = self.instagram.find_m_last_posts_all_accounts(self.instagram.accounts_url,
+                                                                                        int(self.entry_post_number.get()),
+                                                                                        self.progress_bar)
+                    posts_data, comments_data = self.instagram.crawl_comment(posts_to_be_crawled)
+
+                    self.instagram.posts_data.update(posts_data)
+                    self.instagram.comments_data.extend(comments_data)
+
+                    self.label_notif['text'] = f"{len(self.instagram.comments_data)} posts were found !"
+                    self.state = State.SAVE
+
+                t = Thread(target=find_posts, args=(self,))
+                t.start()
+
+            else:
+                self.label_notif['text'] = ""
+                self.label_error_accounts['text'] = "You haven't find accounts yet !"
+
+        elif command == "Save":
+            self.clean_errors()
+
+            if self.state.value > 2:
+                self.state = State.SAVE
+
+                if not self.entry_save_loc.get():
+                    self.label_notif['text'] = ""
+                    self.label_error_loc['text'] = "Location can't be empty !"
+
+                elif path_.isdir(self.entry_save_loc.get()):
+                    location = self.entry_save_loc.get().replace(sep, "/")
+                    location = location[:-1] if location.endswith("/") else location
+                    InstagramCrawler.save_date(self.instagram.comments_data, location)
+                    self.label_notif['text'] = "Done !"
+
+                else:
+                    self.label_notif['text'] = ""
+                    self.label_error_loc['text'] = "This location does not exist !"
+
+            else:
+                self.label_notif['text'] = ""
+                self.label_error_posts['text'] = "You haven't find posts yet !"
+
+        else:
+            self.state = State.LOGIN
+            self.label_notif['text'] = "Done ! re-login please !"
+
+    def clean_errors(self):
+        self.label_error_login['text'] = ""
+        self.label_error_posts['text'] = ""
+        self.label_error_accounts['text'] = ""
+        self.label_error_loc['text'] = ""
 
     def adder(self):
         inputer = simpledialog.askstring(title="Accont Adding", prompt="Enter the new account name !")
@@ -265,9 +445,105 @@ class GraphicalMenu:
         else:
             self.label_error_loc['text'] = "The location can't be selected !"
 
+    def open_special(self, root):
+        special = Toplevel(root)
+        special.title("Special Part")
+
+        widths, heights = 700, 650
+        screenwidth, screenheight = special.winfo_screenwidth(), special.winfo_screenheight()
+        align_str = '%dx%d+%d+%d' % (widths, heights, (screenwidth - widths) / 2, (screenheight - heights) / 2)
+        special.geometry(align_str)
+        special.resizable(width=False, height=False)
+        special.configure(background='#F0EAD6')
+
+        self.Label(special, '#F0EAD6', '#CC397B', Font(family='Calibri bold', size=23), "Prediction Part",
+                   {'x': 10, 'y': 20, 'w': 680, 'h': 45}, 'center')
+        self.Label(special, "#F0EAD6", "#000000", Font(family='Calibri bold', size=11), "Single Prediction",
+                   {'x': 10, 'y': 70, 'w': 120, 'h': 30})
+        self.Label(special, "#F0EAD6", "#000000", Font(family='Calibri bold', size=11), "Multiple Prediction",
+                   {'x': 10, 'y': 170, 'w': 130, 'h': 30})
+        self.Label(special, '#F0EAD6', "#333333", Font(family='Calibri bold', size=11), "Results",
+                   {'x': 10, 'y': 270, 'w': 80, 'h': 30})
+
+        self.Label(special, '#F0EAD6', "#333333", Font(family='Calibri', size=11), "Comment:",
+                   {'x': 10, 'y': 110, 'w': 80, 'h': 30})
+        self.Label(special, '#F0EAD6', "#333333", Font(family='Calibri', size=11), "Address:",
+                   {'x': 10, 'y': 215, 'w': 80, 'h': 30})
+        self.Label(special, '#ffffff', "#333333", Font(family='Calibri', size=11),
+                   f".../{getcwd().split(sep)[-1]}/FasttextFiles/", {'x': 100, 'y': 215, 'w': 450, 'h': 30})
+
+        chart = self.Label(special, '#F0EAD6', "#FF0000", Font(family='Calibri', size=15),
+                           "Please wait for process to be finished !", {'x': 10, 'y': 310, 'w': 680, 'h': 325},
+                           'center')
+
+        self.Button(special, "#CC397B", "#ffffff", Font(family='Calibri bold', size=11), "Predict",
+                    {'x': 560, 'y': 110, 'w': 110, 'h': 30}, partial(self.single_predict, special))
+        self.Button(special, "#CC397B", "#ffffff", Font(family='Calibri bold', size=11), "Predict",
+                    {'x': 560, 'y': 215, 'w': 110, 'h': 30}, partial(self.multi_predict, special))
+
+        self.comment = self.Entry(special, "#333333", Font(family='Calibri bold', size=10),
+                                  {'x': 100, 'y': 110, 'w': 450, 'h': 30})
+
+        ttk.Separator(special, orient=HORIZONTAL).place(x=125, y=85, w=550, h=1)
+        ttk.Separator(special, orient=HORIZONTAL).place(x=140, y=185, w=530, h=1)
+        ttk.Separator(special, orient=HORIZONTAL).place(x=65, y=285, w=610, h=1)
+
+        t = Thread(target=self.prepare_fasttext, args=(chart,))
+        t.start()
+
+    def prepare_fasttext(self, chart):
+        # It's better to make a model every time instead of loading it !
+
+        # make = "model_hashtags.bin" in listdir(getcwd() + f"{sep}FasttextFiles{sep}")
+        self.F.make_model(True)
+        chart["text"] = "Now you use this window !"
+
+    def single_predict(self, special):
+        chart = self.Label(special, '#F0EAD6', "#FF0000", Font(family='Calibri', size=15),
+                           "Please wait for process to be finished !", {'x': 10, 'y': 310, 'w': 680, 'h': 325},
+                           'center')
+
+        if self.comment.get() == "":  # if LineEdit is empty
+            chart["text"] = "Please write your command in entry !"
+            return
+
+        result = self.F.fasttext(self.comment.get())
+
+        chart["text"] = ""
+
+        labels = [result]
+        sizes = [100]
+        fig1, ax1 = plt.subplots()
+        fig1.set_facecolor('#F0EAD6')
+        bar1 = FigureCanvasTkAgg(fig1, chart)
+        bar1.get_tk_widget().pack(side=LEFT, fill=BOTH)
+
+        ax1.pie(sizes, labels=labels, autopct='%1.1f%%', shadow=True, startangle=90)
+        ax1.axis('equal')
+        plt.tight_layout()
+
+    def multi_predict(self, special):
+        chart = self.Label(special, '#F0EAD6', "#FF0000", Font(family='Calibri', size=15),
+                           "Please wait for process to be finished !", {'x': 10, 'y': 310, 'w': 680, 'h': 325},
+                           'center')
+
+        results = self.F.fasttext()
+
+        labels = ['Good', 'Bad', 'Inactive']
+        sizes = [results['good'], results['bad'], results['inactive']]
+        explode = (0.1, 0, 0)
+        fig1, ax1 = plt.subplots()
+        fig1.set_facecolor('#F0EAD6')
+        bar1 = FigureCanvasTkAgg(fig1, chart)
+        bar1.get_tk_widget().pack(side=LEFT, fill=BOTH)
+
+        ax1.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%', shadow=True, startangle=90)
+        ax1.axis('equal')
+        plt.tight_layout()
+
 
 if __name__ == "__main__":
-    roots = tk.Tk()
+    roots = Tk()
     roots.title("Instagram Crawler")
 
     widths, heights = 700, 650

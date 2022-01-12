@@ -1,12 +1,14 @@
 import re
 from pickle import dump, load
 
+from selenium.common.exceptions import TimeoutException
+
 from InstagramCrawler import InstagramCrawler
 import fasttext
 
 
 class FastText:
-    def __init__(self, icrawler: InstagramCrawler):
+    def __init__(self, icrawler: InstagramCrawler = None):
         super().__init__()
         self.comments = {}
         self.cleaned_comments = {}
@@ -32,18 +34,38 @@ class FastText:
 
         self.comments.update(comments)
 
-    def fasttext(self):
-        labeled_data = self.load_labeled()
+    def make_model(self, make: bool = False):
+        if make:
+            labeled_data = self.load_labeled()
+            self.model = fasttext.train_supervised(input=labeled_data["train"], lr=1.0, epoch=25, wordNgrams=3)
+            self.model.save_model(self.path_ft_files + "model_hashtags.bin")
 
-        self.model = fasttext.train_supervised(input=labeled_data["train"], lr=1.0, epoch=25, wordNgrams=2)
-        self.model.save_model(self.path_ft_files + "model_hashtags.bin")
-        print(self.model.test(labeled_data["valid"]))
+        else:
+            self.model = fasttext.load_model(self.path_ft_files + "model_hashtags.bin")
+
+            # test the model:
+            # print(self.model.test(labeled_data["valid"]))
+
+    def fasttext(self, predict: str = ""):
+        self.load_comments()
+
+        results = {"good": 0, "bad": 0, "inactive": 0}
+
+        if predict:
+            return self.model.predict(predict)[0][0].replace("__label__", "")
+
+        else:
+            for predict in self.comments:
+                results[self.model.predict(predict)[0][0].replace("__label__", "")] += 1
+
+            return results
 
     def comments_labeling(self):
         labeled_comments = {}
         deleted_comments = {}
 
-        print("$ Cleaned comments > " + ", ".join([f'{key}: {len(self.cleaned_comments[key])}' for key in self.cleaned_comments.keys()]))
+        print("$ Cleaned comments > " + ", ".join(
+            [f'{key}: {len(self.cleaned_comments[key])}' for key in self.cleaned_comments.keys()]))
 
         print("\n% Enter 'g'/'b'/'i' for good/bad/inactive and enter nothing for deleting this comment.")
 
@@ -89,12 +111,33 @@ class FastText:
             self.save_labeled(temp_comments_keeper)
 
     def save_comments(self):
-        with open(self.path_ft_files + 'saved_comments.pkl', 'ab') as f:
+        with open(self.path_ft_files + 'labeled_comments.pkl', 'ab') as f:
             dump(self.labeled_comments, f)
 
+        with open(self.path_ft_files + 'saved_comments.pkl', 'ab') as f:
+            dump(self.comments, f)
+
     def load_comments(self):
-        with open(self.path_ft_files + 'saved_comments.pkl', 'rb') as f:
+        with open(self.path_ft_files + 'labeled_comments.pkl', 'rb') as f:
             self.labeled_comments = load(f)
+
+        try:
+            with open(self.path_ft_files + 'saved_comments.pkl', 'rb') as f:
+                self.comments = load(f)
+
+        except IOError:
+            saved_comments = []
+            pattern = re.compile("(__label__)[a-zA-Z]+\ ")
+
+            with open(self.path_ft_files + f'saved.train', 'r') as f:
+                saved_comments += [i.replace("\n", "") for i in f.readlines()]
+
+            with open(self.path_ft_files + f'saved.valid', 'r') as f:
+                saved_comments += [i.replace("\n", "") for i in f.readlines()]
+
+            saved_comments = [pattern.sub(r'', i) for i in saved_comments]
+
+            self.comments = saved_comments
 
     def save_labeled(self, labeled_train: list):
         """save each key"""
@@ -103,9 +146,11 @@ class FastText:
 
         with open(self.path_ft_files + f'saved.train', 'a') as f:
             f.write("\n".join(labeled_train[:index_percent]))
+            f.write("\n")
 
         with open(self.path_ft_files + f'saved.valid', 'a') as f:
             f.write("\n".join(labeled_train[index_percent:]))
+            f.write("\n")
 
     def load_labeled(self) -> dict:
         """load all keys"""
@@ -193,18 +238,21 @@ class FastText:
 
 
 if __name__ == '__main__':
-    signed_in = True
+    signed_in = False
     icrawler = InstagramCrawler()
 
     if not signed_in:
         username = 'origins1234'
-        password = 'Instagram@ok'
+        password = 'Instagram@ok' + "l"
         icrawler.driver = InstagramCrawler.set_driver()
         icrawler.driver.get('https://www.instagram.com/')
-        icrawler.login(username, password)
+        try:
+            icrawler.login(username, password)
+        except TimeoutException:
+            print("No Internet")
 
     else:
-        icrawler.driver = InstagramCrawler.signed_in_driver()
+        icrawler.driver = InstagramCrawler.set_driver(True)
 
     F = FastText(icrawler)
 
@@ -215,3 +263,9 @@ if __name__ == '__main__':
     F.comments_labeling()
     F.save_comments()
     F.comments_train_preparing(F.labeled_comments)
+
+    ################
+
+    # F.make_model(True)
+    # print(F.fasttext("good"))
+    # print(F.fasttext())

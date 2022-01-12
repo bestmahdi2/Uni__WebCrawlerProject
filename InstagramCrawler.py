@@ -1,12 +1,9 @@
-import pickle
 from os import listdir, getcwd, sep
+from threading import Thread
 from time import sleep
+from pandas import DataFrame
 from selenium import webdriver, common
-from selenium.webdriver.common.keys import Keys
-import pandas as pd
 from bs4 import BeautifulSoup
-import requests
-import threading
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
@@ -59,7 +56,7 @@ class InstagramCrawler:
             EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Not Now')]")))
         self.driver.find_element_by_xpath("//button[contains(text(), 'Not Now')]").click()
 
-    def find_counted_posts_in_page(self, url: str, number: int) -> list:
+    def find_counted_posts_in_page(self, url: str, number: int, progress_bar={}) -> list:
         self.driver.get(url)
 
         posts = []
@@ -79,14 +76,19 @@ class InstagramCrawler:
             except common.exceptions.StaleElementReferenceException:
                 pass
 
+            progress_bar['value'] += 1
+
         posts = InstagramCrawler.duplicated_remover(posts)
 
         if len(posts) > number:
             return posts[:number]
         return posts
 
-    def find_accounts_url_contain_hashtag(self, hashtag: str, n: int) -> (list, list):
-        posts = self.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/", n)
+    def find_accounts_url_contain_hashtag(self, hashtag: str, n: int, progress_bar={}) -> (list, list):
+        progress_bar['value'] = 0
+        progress_bar['maximum'] = n + (n // 10 + 5)
+
+        posts = self.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/", n, progress_bar)
 
         url = []
         name = []
@@ -110,12 +112,19 @@ class InstagramCrawler:
             except TimeoutException:
                 pass
 
+            progress_bar['value'] += 1
+
         return url, name
 
-    def find_m_last_posts_all_accounts(self, accounts_url: list, m: int) -> list:
+    def find_m_last_posts_all_accounts(self, accounts_url: list, m: int, progress_bar) -> list:
+        progress_bar['value'] = 0
+        progress_bar['maximum'] = m
+
         posts = []
+
         for url in accounts_url:
             posts.extend(self.find_counted_posts_in_page(url, m))
+            progress_bar['value'] += 1
 
         return posts
 
@@ -150,7 +159,7 @@ class InstagramCrawler:
         threads = []
         self.post, self.comment = {}, []
         for content in contents:
-            t = threading.Thread(target=self.comment_thread, args=(content[0], content[1],))
+            t = Thread(target=self.comment_thread, args=(content[0], content[1],))
             t.start()
             threads.append(t)
 
@@ -203,7 +212,7 @@ class InstagramCrawler:
             'likes': [i['likes'] for i in data]
         }
 
-        data_frame = pd.DataFrame(save_data)
+        data_frame = DataFrame(save_data)
         data_frame = data_frame.set_index("username")
 
         data_frame.to_csv(path + "dateFrame.csv", encoding='utf-8')
