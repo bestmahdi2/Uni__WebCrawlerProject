@@ -22,54 +22,42 @@ class InstagramCrawler:
         self.driver = None
 
     @staticmethod
-    def set_driver(firsttime: bool = True) -> webdriver.Chrome:
+    def set_driver(save_data: bool = False, show_browser: bool = True) -> webdriver.Chrome:
         options = webdriver.ChromeOptions()
         options.add_argument("start-maximized")
-        # options.add_argument('--headless')
-        if firsttime:
-            options.add_argument("--user-data-dir=" + getcwd() + sep + "UserData")
-        options.page_load_strategy = 'normal'
 
+        if save_data:
+            options.add_argument("--user-data-dir=" + getcwd() + sep + "UserData")
+
+        if not show_browser:
+            options.add_argument('--headless')
+
+        options.page_load_strategy = 'normal'
         driver = webdriver.Chrome(options=options, executable_path='chromedriver96.exe')
 
         return driver
 
     def login(self, username, password) -> None:
-        try:
-            WebDriverWait(self.driver, 4).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='username']")))
+        WebDriverWait(self.driver, 4).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='username']")))
 
-            username_box = self.driver.find_element_by_css_selector("input[name='username']")
-            password_box = self.driver.find_element_by_css_selector("input[name='password']")
-            username_box.clear()
-            password_box.clear()
-            username_box.send_keys(username)
-            password_box.send_keys(password)
+        username_box = self.driver.find_element_by_css_selector("input[name='username']")
+        password_box = self.driver.find_element_by_css_selector("input[name='password']")
+        username_box.clear()
+        password_box.clear()
+        username_box.send_keys(username)
+        password_box.send_keys(password)
 
-            self.driver.find_element_by_css_selector("button[type='submit']").click()
+        self.driver.find_element_by_css_selector("button[type='submit']").click()
 
-            # Not now buttons
-            WebDriverWait(self.driver, 7).until(
-                EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Not Now')]")))
-            self.driver.find_element_by_xpath("//button[contains(text(), 'Not Now')]").click()
+        # Not now buttons
+        WebDriverWait(self.driver, 7).until(
+            EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Not Now')]")))
+        self.driver.find_element_by_xpath("//button[contains(text(), 'Not Now')]").click()
 
-            WebDriverWait(self.driver, 7).until(
-                EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Not Now')]")))
-            self.driver.find_element_by_xpath("//button[contains(text(), 'Not Now')]").click()
-
-        except TimeoutException:
-            print("No Internet")
-
-    @staticmethod
-    def signed_in_driver() -> webdriver.Chrome:
-        options = webdriver.ChromeOptions()
-        # options.add_argument('--headless')
-        options.add_argument("start-maximized")
-        options.add_argument("--user-data-dir=" + getcwd() + sep + "UserData")
-        options.page_load_strategy = 'normal'
-        driver = webdriver.Chrome(options=options, executable_path='chromedriver96.exe')
-
-        return driver
+        WebDriverWait(self.driver, 7).until(
+            EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Not Now')]")))
+        self.driver.find_element_by_xpath("//button[contains(text(), 'Not Now')]").click()
 
     def find_counted_posts_in_page(self, url: str, number: int) -> list:
         self.driver.get(url)
@@ -207,7 +195,7 @@ class InstagramCrawler:
         return [x for x in dup if not (x in seen or seen_add(x))]
 
     @staticmethod
-    def save_date(data: list, path : str = "") -> None:
+    def save_date(data: list, path: str = "") -> None:
         save_data = {
             'username': [i['username'] for i in data],
             'comment': [i['comment'] for i in data],
@@ -232,10 +220,13 @@ if __name__ == '__main__':
         password = 'Instagram@ok'
         instagram.driver = InstagramCrawler.set_driver()
         instagram.driver.get('https://www.instagram.com/')
-        instagram.login(username, password)
+        try:
+            instagram.login(username, password)
+        except TimeoutException:
+            print("No Internet")
 
     else:
-        instagram.driver = InstagramCrawler.signed_in_driver()
+        instagram.driver = InstagramCrawler.set_driver(True)
 
     instagram.accounts_url, instagram.accounts_name = instagram.find_accounts_url_contain_hashtag(hashtag, n)
     posts_to_be_crawled = instagram.find_m_last_posts_all_accounts(instagram.accounts_url, m)
