@@ -1,3 +1,4 @@
+from datetime import datetime
 from os import listdir, getcwd, sep
 from threading import Thread
 from time import sleep
@@ -56,7 +57,8 @@ class InstagramCrawler:
             EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Not Now')]")))
         self.driver.find_element_by_xpath("//button[contains(text(), 'Not Now')]").click()
 
-    def find_counted_posts_in_page(self, url: str, number: int, progress_bar={}) -> list:
+    def find_counted_posts_in_page(self, url: str, number: int, progress_bar={}, label_passed={},
+                                   label_left={}) -> list:
         self.driver.get(url)
 
         posts = []
@@ -76,7 +78,7 @@ class InstagramCrawler:
             except common.exceptions.StaleElementReferenceException:
                 pass
 
-            progress_bar['value'] += 1
+            self.progressbar(progress_bar, label_passed, label_left, 1)
 
         posts = InstagramCrawler.duplicated_remover(posts)
 
@@ -84,11 +86,14 @@ class InstagramCrawler:
             return posts[:number]
         return posts
 
-    def find_accounts_url_contain_hashtag(self, hashtag: str, n: int, progress_bar={}) -> (list, list):
-        progress_bar['value'] = 0
-        progress_bar['maximum'] = n + (n // 10 + 5)
+    def find_accounts_url_contain_hashtag(self, hashtag: str, n: int, progress_bar={}, label_passed={},
+                                          label_left={}) -> (list, list):
+        self.max = n + (n // 10 + 5)
+        self.start = datetime.now()
+        self.progressbar(progress_bar, label_passed, label_left, value=0, maximum=self.max)
 
-        posts = self.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/", n, progress_bar)
+        posts = self.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/", n, progress_bar,
+                                                label_passed, label_left)
 
         url = []
         name = []
@@ -112,26 +117,32 @@ class InstagramCrawler:
             except TimeoutException:
                 pass
 
-            progress_bar['value'] += 1
+            self.progressbar(progress_bar, label_passed, label_left, 1)
 
         return url, name
 
-    def find_m_last_posts_all_accounts(self, accounts_url: list, m: int, progress_bar) -> list:
-        progress_bar['value'] = 0
-        progress_bar['maximum'] = m
-
+    def find_m_last_posts_all_accounts(self, accounts_url: list, m: int, progress_bar={}, label_passed={},
+                                       label_left={}) -> list:
+        self.max = m
+        self.start = datetime.now()
+        self.progressbar(progress_bar, label_passed, label_left, value=0, maximum=self.max)
         posts = []
 
         for url in accounts_url:
-            posts.extend(self.find_counted_posts_in_page(url, m))
-            progress_bar['value'] += 1
+            posts.extend(self.find_counted_posts_in_page(url, m, progress_bar, label_passed, label_left))
+            self.progressbar(progress_bar, label_passed, label_left, 1)
 
         return posts
 
-    def crawl_comment(self, urls: list) -> (list, list):
+    def crawl_comment(self, urls: list, progress_bar={}, label_passed={}, label_left={}) -> (list, list):
         contents = []
+        self.max = len(urls)
+        self.start = datetime.now()
+        self.progressbar(progress_bar, label_passed, label_left, value=0, maximum=self.max)
+
         for url in urls:
             self.driver.get(url)
+            self.progressbar(progress_bar, label_passed, label_left, 1)
 
             comments = ''
             error = 0
@@ -204,7 +215,7 @@ class InstagramCrawler:
         return [x for x in dup if not (x in seen or seen_add(x))]
 
     @staticmethod
-    def save_date(data: list, path: str = "") -> None:
+    def save_data(data: list, path: str = "") -> None:
         save_data = {
             'username': [i['username'] for i in data],
             'comment': [i['comment'] for i in data],
@@ -215,7 +226,24 @@ class InstagramCrawler:
         data_frame = DataFrame(save_data)
         data_frame = data_frame.set_index("username")
 
-        data_frame.to_csv(path + "dateFrame.csv", encoding='utf-8')
+        data_frame.to_csv(path + "dataFrame.csv", encoding='utf-8')
+
+    def progressbar(self, progress_bar, label_passed, label_left, value: int = 0, maximum: int = 0):
+        if maximum:
+            progress_bar['maximum'] = maximum
+
+        if not value:
+            progress_bar['value'] = 0
+
+        else:
+            progress_bar['value'] += value
+
+        now = datetime.now()
+        sec = int((now - self.start).total_seconds())
+        passed = '{:02d}:{:02d}'.format(sec // 60, sec % 60)
+        left = (self.max - progress_bar['value']) * sec // self.max
+        label_passed['text'] = '{}/{}, {}'.format(progress_bar["value"], self.max, passed)
+        label_left['text'] = '{:02d}:{:02d}'.format(left // 60, left % 60)
 
 
 if __name__ == '__main__':
@@ -244,5 +272,5 @@ if __name__ == '__main__':
     instagram.posts_data.update(posts_data)
     instagram.comments_data.extend(comments_data)
 
-    InstagramCrawler.save_date(instagram.comments_data)
+    InstagramCrawler.save_data(instagram.comments_data)
     print(instagram.comments_data)

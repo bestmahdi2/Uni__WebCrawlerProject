@@ -40,8 +40,8 @@ class GraphicalMenu:
         self.instagram = InstagramCrawler()
         self.F = FastText()
 
-        self.use_cookies = BooleanVar()
-        self.show_browser = BooleanVar()
+        self.use_cookies = BooleanVar(value=True)
+        self.show_browser = BooleanVar(value=True)
 
         self.initialize_labels(root)
         self.initialize_buttons(root)
@@ -54,6 +54,7 @@ class GraphicalMenu:
         self.progress_bar = ttk.Progressbar(root, style="red.Horizontal.TProgressbar", orient="horizontal", length=600,
                                             mode="determinate", maximum=100, value=0)
         self.progress_bar.place(x=105, y=550, width=390, height=30)
+        # self.progress_bar.place(x=105, y=550, width=425, height=30)
 
         self.initialize_seprator(root)
 
@@ -93,6 +94,7 @@ class GraphicalMenu:
                                           "", {'x': 10, 'y': 480, 'w': 520, 'h': height})
         self.label_notif = self.Label(root, bg, "#20B2AA", Font(family='Calibri', size=11),
                                       "", {'x': 570, 'y': 350, 'w': 110, 'h': 200}, 'n', wraplength=110)
+
 
     def initialize_buttons(self, root):
         # initialize buttons, same properties were set to variables
@@ -293,7 +295,7 @@ class GraphicalMenu:
         """
 
         self.clean_errors()
-        self.label_notif['text'] = "Wait please !"
+        self.label_notif['text'] = "Wait please ! Program's speed depends on your internet connection !"
 
         if command == "Login":
             self.clean_errors()
@@ -347,11 +349,12 @@ class GraphicalMenu:
 
                 if self.entry_hashtag.get():
                     def find_acounts(self):
-                        try:
+                        # try:
                             hashtag = self.entry_hashtag.get()
                             hashtag = hashtag[1:] if hashtag.startswith("#") else hashtag
                             self.instagram.accounts_url, self.instagram.accounts_name = self.instagram.find_accounts_url_contain_hashtag(
-                                self.entry_hashtag.get(), int(self.entry_account_number.get()), self.progress_bar)
+                                self.entry_hashtag.get(), int(self.entry_account_number.get()), self.progress_bar,
+                                self.label_passed, self.label_left)
 
                             self.combobox['values'] = tuple(self.instagram.accounts_name)
                             self.combobox.current(len(self.combobox['values']) - 1 if self.combobox['values'] else 0)
@@ -359,8 +362,8 @@ class GraphicalMenu:
                             self.label_notif['text'] = f"{len(self.combobox['values'])} accounts were found !"
                             self.state = State.POST
 
-                        except:
-                            self.label_error_accounts['text'] = "Weak internet connection !"
+                        # except:
+                        #     self.label_error_accounts['text'] = "Weak internet connection !"
 
                     t = Thread(target=find_acounts, args=(self,))
                     t.start()
@@ -374,17 +377,19 @@ class GraphicalMenu:
         elif command == "Find Posts":
             self.clean_errors()
 
+            self.instagram.accounts_url = [f"https://www.instagram.com/{i}/" for i in self.combobox['values']]
+
             if self.state.value > 1:
                 def find_posts(self):
                     posts_to_be_crawled = self.instagram.find_m_last_posts_all_accounts(self.instagram.accounts_url,
                                                                                         int(self.entry_post_number.get()),
                                                                                         self.progress_bar)
-                    posts_data, comments_data = self.instagram.crawl_comment(posts_to_be_crawled)
+                    posts_data, comments_data = self.instagram.crawl_comment(posts_to_be_crawled, self.progress_bar)
 
                     self.instagram.posts_data.update(posts_data)
                     self.instagram.comments_data.extend(comments_data)
 
-                    self.label_notif['text'] = f"{len(self.instagram.comments_data)} posts were found !"
+                    self.label_notif['text'] = f"{len(self.instagram.comments_data)} comment(s) were found !"
                     self.state = State.SAVE
 
                 t = Thread(target=find_posts, args=(self,))
@@ -398,8 +403,6 @@ class GraphicalMenu:
             self.clean_errors()
 
             if self.state.value > 2:
-                self.state = State.SAVE
-
                 if not self.entry_save_loc.get():
                     self.label_notif['text'] = ""
                     self.label_error_loc['text'] = "Location can't be empty !"
@@ -407,8 +410,9 @@ class GraphicalMenu:
                 elif path_.isdir(self.entry_save_loc.get()):
                     location = self.entry_save_loc.get().replace(sep, "/")
                     location = location[:-1] if location.endswith("/") else location
-                    InstagramCrawler.save_date(self.instagram.comments_data, location)
+                    InstagramCrawler.save_data(self.instagram.comments_data, location)
                     self.label_notif['text'] = "Done !"
+                    self.state = State.SAVE
 
                 else:
                     self.label_notif['text'] = ""
