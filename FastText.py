@@ -1,9 +1,9 @@
 import re
-from pickle import dump, load
 from typing import Union
+from pickle import dump, load
+from InstagramCrawler import InstagramCrawler
 from fasttext import train_supervised, load_model
 from selenium.common.exceptions import TimeoutException
-from InstagramCrawler import InstagramCrawler
 
 
 class FastText:
