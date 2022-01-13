@@ -1,10 +1,7 @@
 import re
 from pickle import dump, load
-
 from selenium.common.exceptions import TimeoutException
-
 from InstagramCrawler import InstagramCrawler
-import fasttext
 
 
 class FastText:
@@ -35,16 +32,18 @@ class FastText:
         self.comments.update(comments)
 
     def make_model(self, make: bool = False):
+        import fasttext
+        labeled_data = self.load_labeled()
+
         if make:
-            labeled_data = self.load_labeled()
             self.model = fasttext.train_supervised(input=labeled_data["train"], lr=1.0, epoch=25, wordNgrams=3)
             self.model.save_model(self.path_ft_files + "model_hashtags.bin")
 
         else:
             self.model = fasttext.load_model(self.path_ft_files + "model_hashtags.bin")
 
-            # test the model:
-            # print(self.model.test(labeled_data["valid"]))
+        # test the model:
+        # print(self.model.test(labeled_data["valid"]))
 
     def fasttext(self, predict: str = ""):
         self.load_comments()
@@ -238,12 +237,12 @@ class FastText:
 
 
 if __name__ == '__main__':
-    signed_in = False
+    signed_in = True
     icrawler = InstagramCrawler()
 
     if not signed_in:
         username = 'origins1234'
-        password = 'Instagram@ok' + "l"
+        password = 'Instagram@ok'
         icrawler.driver = InstagramCrawler.set_driver()
         icrawler.driver.get('https://www.instagram.com/')
         try:
@@ -258,14 +257,16 @@ if __name__ == '__main__':
 
     ##############
 
-    F.comments_getter(["applewatch", "macbookpro", "appleiphone"], 10)
-    F.cleaned_comments = FastText.clean_comments(F.comments)
-    F.comments_labeling()
-    F.save_comments()
-    F.comments_train_preparing(F.labeled_comments)
+    # F.comments_getter(["applewatch", "macbookpro", "appleiphone"], 1)
+    # print("Comments:", F.comments)
+    # F.cleaned_comments = FastText.clean_comments(F.comments)
+    # print("Cleaned Comments:", F.cleaned_comments)
+    # F.comments_labeling()
+    # F.save_comments()
+    # F.comments_train_preparing(F.labeled_comments)
 
     ################
 
-    # F.make_model(True)
-    # print(F.fasttext("good"))
-    # print(F.fasttext())
+    F.make_model(make=False)
+    print(F.fasttext("good"))
+    print(F.fasttext())

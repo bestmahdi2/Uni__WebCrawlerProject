@@ -31,7 +31,7 @@ class InstagramCrawler:
             options.add_argument('--headless')
 
         options.page_load_strategy = 'normal'
-        driver = webdriver.Chrome(options=options, executable_path='chromedriver96.exe')
+        driver = webdriver.Chrome(options=options, executable_path='chromedriver.exe')
 
         return driver
 
@@ -78,7 +78,8 @@ class InstagramCrawler:
             except common.exceptions.StaleElementReferenceException:
                 pass
 
-            self.progressbar(progress_bar, label_passed, label_left, 1)
+            if progress_bar:
+                self.progressbar(progress_bar, label_passed, label_left, 1)
 
         posts = InstagramCrawler.duplicated_remover(posts)
 
@@ -90,7 +91,8 @@ class InstagramCrawler:
                                           label_left={}) -> (list, list):
         self.max = n + (n // 10 + 5)
         self.start = datetime.now()
-        self.progressbar(progress_bar, label_passed, label_left, value=0, maximum=self.max)
+        if progress_bar:
+            self.progressbar(progress_bar, label_passed, label_left, value=0, maximum=self.max)
 
         posts = self.find_counted_posts_in_page(f"https://www.instagram.com/explore/tags/{hashtag}/", n, progress_bar,
                                                 label_passed, label_left)
@@ -117,20 +119,23 @@ class InstagramCrawler:
             except TimeoutException:
                 pass
 
-            self.progressbar(progress_bar, label_passed, label_left, 1)
+            if progress_bar:
+                self.progressbar(progress_bar, label_passed, label_left, 1)
 
         return url, name
 
     def find_m_last_posts_all_accounts(self, accounts_url: list, m: int, progress_bar={}, label_passed={},
                                        label_left={}) -> list:
-        self.max = m
+        self.max = (m // 10 + 5) * len(accounts_url)
         self.start = datetime.now()
-        self.progressbar(progress_bar, label_passed, label_left, value=0, maximum=self.max)
+        if progress_bar:
+            self.progressbar(progress_bar, label_passed, label_left, value=0, maximum=self.max)
         posts = []
 
         for url in accounts_url:
             posts.extend(self.find_counted_posts_in_page(url, m, progress_bar, label_passed, label_left))
-            self.progressbar(progress_bar, label_passed, label_left, 1)
+            if progress_bar:
+                self.progressbar(progress_bar, label_passed, label_left, 1)
 
         return posts
 
@@ -138,11 +143,11 @@ class InstagramCrawler:
         contents = []
         self.max = len(urls)
         self.start = datetime.now()
-        self.progressbar(progress_bar, label_passed, label_left, value=0, maximum=self.max)
+        if progress_bar:
+            self.progressbar(progress_bar, label_passed, label_left, value=0, maximum=self.max)
 
         for url in urls:
             self.driver.get(url)
-            self.progressbar(progress_bar, label_passed, label_left, 1)
 
             comments = ''
             error = 0
@@ -166,6 +171,9 @@ class InstagramCrawler:
 
             if comments:
                 contents.append([url, self.driver.page_source])
+
+            if progress_bar:
+                self.progressbar(progress_bar, label_passed, label_left, 1)
 
         threads = []
         self.post, self.comment = {}, []
@@ -247,7 +255,7 @@ class InstagramCrawler:
 
 
 if __name__ == '__main__':
-    n, m = 4, 1
+    n, m = 1, 1
     hashtag = "pizza"
 
     instagram = InstagramCrawler()
@@ -268,6 +276,8 @@ if __name__ == '__main__':
     instagram.accounts_url, instagram.accounts_name = instagram.find_accounts_url_contain_hashtag(hashtag, n)
     posts_to_be_crawled = instagram.find_m_last_posts_all_accounts(instagram.accounts_url, m)
     posts_data, comments_data = instagram.crawl_comment(posts_to_be_crawled)
+
+    print(comments_data)
 
     instagram.posts_data.update(posts_data)
     instagram.comments_data.extend(comments_data)

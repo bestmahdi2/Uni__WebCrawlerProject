@@ -81,9 +81,9 @@ class GraphicalMenu:
         self.Label(root, bg, fg, font_bold, "Save Location", {'x': 10, 'y': 410, 'w': 95, 'h': height})
         self.Label(root, bg, fg, font_bold, "Progress", {'x': 10, 'y': 510, 'w': 95, 'h': height})
         self.label_passed = self.Label(root, bg, fg, Font(family='Calibri', size=10),
-                                       "100/300, 10:02", {'x': 10, 'y': 550, 'w': 100, 'h': height})
+                                       "0/0, 00:00", {'x': 10, 'y': 550, 'w': 100, 'h': height})
         self.label_left = self.Label(root, bg, fg, Font(family='Calibri', size=10),
-                                     "10:02", {'x': 500, 'y': 550, 'w': 167, 'h': height})
+                                     "00:00", {'x': 500, 'y': 550, 'w': 167, 'h': height})
         self.label_error_login = self.Label(root, bg, "#FF0038", Font(family='Calibri', size=10),
                                             "", {'x': 10, 'y': 140, 'w': 520, 'h': height})
         self.label_error_accounts = self.Label(root, bg, "#FF0038", Font(family='Calibri', size=10),
@@ -349,7 +349,7 @@ class GraphicalMenu:
 
                 if self.entry_hashtag.get():
                     def find_acounts(self):
-                        # try:
+                        try:
                             hashtag = self.entry_hashtag.get()
                             hashtag = hashtag[1:] if hashtag.startswith("#") else hashtag
                             self.instagram.accounts_url, self.instagram.accounts_name = self.instagram.find_accounts_url_contain_hashtag(
@@ -362,8 +362,8 @@ class GraphicalMenu:
                             self.label_notif['text'] = f"{len(self.combobox['values'])} accounts were found !"
                             self.state = State.POST
 
-                        # except:
-                        #     self.label_error_accounts['text'] = "Weak internet connection !"
+                        except:
+                            self.label_error_accounts['text'] = "Weak internet connection !"
 
                     t = Thread(target=find_acounts, args=(self,))
                     t.start()
@@ -409,9 +409,10 @@ class GraphicalMenu:
 
                 elif path_.isdir(self.entry_save_loc.get()):
                     location = self.entry_save_loc.get().replace(sep, "/")
-                    location = location[:-1] if location.endswith("/") else location
+                    location = location if location.endswith("/") else location + "/"
                     InstagramCrawler.save_data(self.instagram.comments_data, location)
                     self.label_notif['text'] = "Done !"
+
                     self.state = State.SAVE
 
                 else:
