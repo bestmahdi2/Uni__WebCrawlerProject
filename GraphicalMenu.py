@@ -12,7 +12,6 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import ttk, HORIZONTAL, VERTICAL, simpledialog, filedialog, Button, Label, Entry, Checkbutton, Toplevel, \
     BOTH, LEFT, Tk, BooleanVar
 
-
 class State(Enum):
     """
        Enum class for State,
