@@ -16,7 +16,7 @@ A university project in which a web crawler is designed for the Instagram websit
 * برای استفاده از برنامه، نیاز هست که نسخه‌ی مناسب chromedriver.exe را با توجه به نسخه‌ی Chrome Browser خود دانلود کرده و در کنار برنامه قرار دهید.
 * برای دسترسی به همه‌ی پروژه‌های دانشگاهی من، به این لینک مراجعه کنید:
 
-👈🏻 **[پروژه‌های دانشگاهی من](https://github.com/bestmahdi2/Uni_SKU_Path)**
+👈🏻 **[پروژه‌های دانشگاهی من](https://github.com/bestmahdi2/Uni__Bachelors_SKU_Path)**
 
 # 📝 **توضیحات پروژه**
 <img src="Project_Description.png" width="100%">
